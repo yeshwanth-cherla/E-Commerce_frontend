@@ -1,0 +1,3 @@
+# services/ — Axios API call modules
+# Examples: authService.js, productService.js, cartService.js, orderService.js, adminService.js
+# All services use a shared Axios instance with JWT interceptor (configured in Stage 05/13)
