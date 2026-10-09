@@ -79,6 +79,17 @@ export const OrderHistoryPage = () => {
                   <span style={styles.orderDate}>
                     Placed on {new Date(order.createdAt).toLocaleDateString()}
                   </span>
+                  <div style={{ fontSize: '0.8rem', color: '#cbd5e1', marginTop: '4px' }}>
+                    Payment: <strong>Cash on Delivery (COD)</strong> •{' '}
+                    <span
+                      style={{
+                        color: order.paymentStatus === 'SUCCESS' ? '#4ade80' : '#f59e0b',
+                        fontWeight: '700',
+                      }}
+                    >
+                      {order.paymentStatus === 'SUCCESS' ? 'PAID' : 'UNPAID / PENDING'}
+                    </span>
+                  </div>
                 </div>
 
                 <div style={{ textAlign: 'right' }}>

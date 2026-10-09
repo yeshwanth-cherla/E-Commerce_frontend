@@ -251,7 +251,28 @@ export const CheckoutPage = () => {
 
           {/* Summary & Confirmation Column */}
           <div style={styles.sectionCard}>
-            <h2 style={styles.sectionTitle}>2. Order Summary</h2>
+            <h2 style={styles.sectionTitle}>2. Payment Method</h2>
+
+            <div style={styles.codBox}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem' }}>
+                <input
+                  type="radio"
+                  id="codOption"
+                  name="paymentMethod"
+                  checked
+                  readOnly
+                  style={{ accentColor: '#6366f1', width: '18px', height: '18px' }}
+                />
+                <label htmlFor="codOption" style={{ color: '#f8fafc', fontWeight: '700', fontSize: '1rem', cursor: 'pointer' }}>
+                  💵 Cash on Delivery (COD)
+                </label>
+              </div>
+              <p style={{ color: '#94a3b8', fontSize: '0.85rem', margin: '0.5rem 0 0 1.8rem' }}>
+                Pay with cash when your package is delivered to your doorstep.
+              </p>
+            </div>
+
+            <h2 style={{ ...styles.sectionTitle, marginTop: '1.8rem' }}>3. Order Summary</h2>
 
             <div style={styles.itemList}>
               {cartItems.map((item) => (
@@ -273,7 +294,7 @@ export const CheckoutPage = () => {
 
             <div style={styles.paymentInfoNote}>
               <p style={{ margin: 0, fontSize: '0.85rem', color: '#94a3b8' }}>
-                ℹ️ Payment status will be created as <strong>PENDING</strong> upon checkout.
+                ℹ️ Initial Payment Status: <strong style={{ color: '#f59e0b' }}>UNPAID / PENDING</strong>. Status will update to <strong>PAID</strong> after delivery collection.
               </p>
             </div>
 
@@ -285,7 +306,7 @@ export const CheckoutPage = () => {
                 opacity: submitting || !selectedAddressId ? 0.6 : 1,
               }}
             >
-              {submitting ? 'Processing Order...' : 'Confirm & Place Order'}
+              {submitting ? 'Placing Order...' : 'Confirm & Place Order (COD)'}
             </button>
           </div>
         </div>
@@ -413,6 +434,13 @@ const styles = {
   divider: {
     borderColor: '#1e293b',
     margin: '1.2rem 0',
+  },
+  codBox: {
+    backgroundColor: '#1e293b',
+    border: '1px solid #6366f1',
+    borderRadius: '8px',
+    padding: '1rem',
+    marginBottom: '1rem',
   },
   paymentInfoNote: {
     backgroundColor: '#1e293b',

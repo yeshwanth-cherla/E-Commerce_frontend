@@ -107,13 +107,28 @@ export const OrderDetailPage = () => {
           </div>
 
           <div style={styles.statusNotice}>
-            <h4 style={{ color: '#f8fafc', fontSize: '0.9rem', margin: '0 0 0.3rem 0' }}>
+            <h4 style={{ color: '#f8fafc', fontSize: '0.9rem', margin: '0 0 0.4rem 0' }}>
               Payment Information
             </h4>
-            <p style={{ color: '#94a3b8', fontSize: '0.85rem', margin: 0 }}>
-              Payment Status: <strong>PENDING</strong>
+            <p style={{ color: '#cbd5e1', fontSize: '0.85rem', margin: 0, lineHeight: '1.6' }}>
+              Method: <strong>Cash on Delivery (COD)</strong>
               <br />
-              Order status is currently <strong>{order.status}</strong>.
+              Status:{' '}
+              <strong
+                style={{
+                  color: order.paymentStatus === 'SUCCESS' ? '#4ade80' : '#f59e0b',
+                }}
+              >
+                {order.paymentStatus === 'SUCCESS' ? 'PAID / COLLECTED' : 'UNPAID / PENDING'}
+              </strong>
+              {order.paidAt && (
+                <>
+                  <br />
+                  Collected At: {new Date(order.paidAt).toLocaleString()}
+                </>
+              )}
+              <br />
+              Order Status: <strong>{order.status}</strong>
             </p>
           </div>
         </div>

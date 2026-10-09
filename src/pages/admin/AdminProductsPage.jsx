@@ -29,6 +29,7 @@ export const AdminProductsPage = () => {
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [categoryName, setCategoryName] = useState('');
   const [categoryDescription, setCategoryDescription] = useState('');
+  const [categoryParentId, setCategoryParentId] = useState('');
   const [savingCategory, setSavingCategory] = useState(false);
 
   const loadData = useCallback(async () => {
@@ -147,11 +148,13 @@ export const AdminProductsPage = () => {
       await apiClient.post('/api/categories', {
         name: categoryName,
         description: categoryDescription,
+        parentId: categoryParentId ? Number(categoryParentId) : null,
       });
       setToastMessage('Category created successfully!');
       setShowCategoryModal(false);
       setCategoryName('');
       setCategoryDescription('');
+      setCategoryParentId('');
       await loadData();
       setTimeout(() => setToastMessage(''), 3000);
     } catch (err) {
@@ -163,13 +166,15 @@ export const AdminProductsPage = () => {
 
   if (loading) return <LoadingSpinner message="Loading catalog management..." />;
 
+  const mainCategories = categories.filter((c) => !c.parentId);
+
   return (
     <div style={styles.container}>
       <div style={styles.header}>
         <h1 style={styles.title}>Product & Category Management</h1>
         <div style={{ display: 'flex', gap: '0.8rem' }}>
           <button onClick={() => setShowCategoryModal(true)} style={styles.secBtn}>
-            + Add Category
+            + Add Category / Subcategory
           </button>
           <button onClick={openCreateProduct} style={styles.primaryBtn}>
             + Add Product
@@ -189,7 +194,7 @@ export const AdminProductsPage = () => {
         </span>
         {categories.map((c) => (
           <span key={c.id} style={styles.catPill}>
-            {c.name}
+            {c.parentName ? `${c.parentName} → ` : ''}{c.name}
           </span>
         ))}
       </div>
@@ -213,7 +218,10 @@ export const AdminProductsPage = () => {
                 <td style={styles.td}>
                   <strong style={{ color: '#f8fafc' }}>{prod.name}</strong>
                 </td>
-                <td style={styles.td}>{prod.category?.name}</td>
+                <td style={styles.td}>
+                  {prod.category?.parentName ? `${prod.category.parentName} > ` : ''}
+                  {prod.category?.name}
+                </td>
                 <td style={styles.td}>${Number(prod.price).toFixed(2)}</td>
                 <td style={styles.td}>{prod.stockQuantity}</td>
                 <td style={styles.td}>
@@ -309,7 +317,7 @@ export const AdminProductsPage = () => {
                 >
                   {categories.map((c) => (
                     <option key={c.id} value={c.id}>
-                      {c.name}
+                      {c.parentName ? `${c.parentName} > ${c.name}` : c.name}
                     </option>
                   ))}
                 </select>
@@ -347,7 +355,7 @@ export const AdminProductsPage = () => {
       {showCategoryModal && (
         <div style={styles.modalOverlay}>
           <div style={styles.modalContent}>
-            <h3 style={styles.modalTitle}>Add New Category</h3>
+            <h3 style={styles.modalTitle}>Add Category or Subcategory</h3>
             <form onSubmit={handleSaveCategory} style={styles.form}>
               <div style={styles.field}>
                 <label style={styles.label}>Category Name</label>
@@ -356,8 +364,28 @@ export const AdminProductsPage = () => {
                   required
                   value={categoryName}
                   onChange={(e) => setCategoryName(e.target.value)}
+                  placeholder="e.g. Smart Laptops or Electronics"
                   style={styles.input}
                 />
+              </div>
+
+              <div style={styles.field}>
+                <label style={styles.label}>Parent Category (Optional)</label>
+                <select
+                  value={categoryParentId}
+                  onChange={(e) => setCategoryParentId(e.target.value)}
+                  style={styles.input}
+                >
+                  <option value="">-- None (Creates a Main Category) --</option>
+                  {mainCategories.map((mc) => (
+                    <option key={mc.id} value={mc.id}>
+                      {mc.name}
+                    </option>
+                  ))}
+                </select>
+                <small style={{ color: '#94a3b8', fontSize: '0.75rem' }}>
+                  Select a parent category to create a subcategory, or leave blank for a main category.
+                </small>
               </div>
 
               <div style={styles.field}>

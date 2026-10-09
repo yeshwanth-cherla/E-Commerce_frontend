@@ -44,7 +44,7 @@ export const HomePage = () => {
     try {
       const params = {
         page,
-        size: 10,
+        size: 12,
         sortBy,
         sortDir,
       };
@@ -99,13 +99,23 @@ export const HomePage = () => {
     }
   };
 
+  // Group categories into Main Categories (parent is null) and Subcategories
+  const mainCategories = categories.filter((cat) => !cat.parentId);
+  const selectedCat = categories.find((cat) => cat.id.toString() === categoryId);
+  const currentParentId = selectedCat
+    ? selectedCat.parentId || selectedCat.id
+    : null;
+  const currentSubcategories = categories.filter(
+    (cat) => cat.parentId && cat.parentId === currentParentId
+  );
+
   return (
     <div style={styles.container}>
-      {/* Banner */}
+      {/* Hero Banner */}
       <div style={styles.heroBanner}>
-        <h1 style={styles.heroTitle}>Discover Premium Products</h1>
+        <h1 style={styles.heroTitle}>Discover Quality Products</h1>
         <p style={styles.heroSubtitle}>
-          Quality electronics, apparel, and gadgets delivered straight to your door.
+          Shop Electronics, Fashion, Home Essentials, Books & Personal Care with Cash on Delivery (COD).
         </p>
       </div>
 
@@ -114,7 +124,7 @@ export const HomePage = () => {
       )}
       <AlertMessage type="error" message={error} onClose={() => setError(null)} />
 
-      {/* Category Pills & Filters */}
+      {/* Main Category Tabs */}
       <div style={styles.filterBar}>
         <button
           onClick={() => handleCategorySelect('')}
@@ -123,21 +133,45 @@ export const HomePage = () => {
             ...(categoryId === '' ? styles.activeCategoryTab : {}),
           }}
         >
-          All Products
+          All Categories
         </button>
-        {categories.map((cat) => (
-          <button
-            key={cat.id}
-            onClick={() => handleCategorySelect(cat.id.toString())}
-            style={{
-              ...styles.categoryTab,
-              ...(categoryId === cat.id.toString() ? styles.activeCategoryTab : {}),
-            }}
-          >
-            {cat.name}
-          </button>
-        ))}
+        {mainCategories.map((cat) => {
+          const isSelected =
+            categoryId === cat.id.toString() ||
+            (selectedCat && selectedCat.parentId === cat.id);
+          return (
+            <button
+              key={cat.id}
+              onClick={() => handleCategorySelect(cat.id.toString())}
+              style={{
+                ...styles.categoryTab,
+                ...(isSelected ? styles.activeCategoryTab : {}),
+              }}
+            >
+              {cat.name}
+            </button>
+          );
+        })}
       </div>
+
+      {/* Subcategory Pills (if active main category has subcategories) */}
+      {currentSubcategories.length > 0 && (
+        <div style={styles.subcategoryBar}>
+          <span style={styles.subLabel}>Subcategories:</span>
+          {currentSubcategories.map((sub) => (
+            <button
+              key={sub.id}
+              onClick={() => handleCategorySelect(sub.id.toString())}
+              style={{
+                ...styles.subTab,
+                ...(categoryId === sub.id.toString() ? styles.activeSubTab : {}),
+              }}
+            >
+              {sub.name}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Main Catalog Grid */}
       {loading ? (
@@ -153,14 +187,29 @@ export const HomePage = () => {
             <Link key={product.id} to={`/products/${product.id}`} style={styles.card}>
               <div style={styles.imageWrapper}>
                 {product.imageUrl ? (
-                  <img src={product.imageUrl} alt={product.name} style={styles.image} />
-                ) : (
-                  <div style={styles.imagePlaceholder}>📦</div>
-                )}
+                  <img
+                    src={product.imageUrl}
+                    alt={product.name}
+                    style={styles.image}
+                    onError={(e) => {
+                      e.target.onerror = null;
+                      e.target.style.display = 'none';
+                      e.target.nextSibling.style.display = 'block';
+                    }}
+                  />
+                ) : null}
+                <div
+                  style={{
+                    ...styles.imagePlaceholder,
+                    display: product.imageUrl ? 'none' : 'block',
+                  }}
+                >
+                  📦
+                </div>
                 {product.stockQuantity <= 0 ? (
                   <span style={styles.outOfStockBadge}>Out of Stock</span>
                 ) : product.stockQuantity <= 5 ? (
-                  <span style={styles.lowStockBadge}>Low Stock</span>
+                  <span style={styles.lowStockBadge}>Low Stock ({product.stockQuantity})</span>
                 ) : null}
               </div>
 
@@ -232,8 +281,42 @@ const styles = {
     display: 'flex',
     gap: '0.6rem',
     overflowX: 'auto',
-    paddingBottom: '1rem',
+    paddingBottom: '0.5rem',
+    marginBottom: '0.8rem',
+  },
+  subcategoryBar: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.5rem',
+    overflowX: 'auto',
+    paddingBottom: '0.8rem',
     marginBottom: '1.5rem',
+    backgroundColor: 'rgba(30, 41, 59, 0.4)',
+    padding: '0.6rem 1rem',
+    borderRadius: '8px',
+  },
+  subLabel: {
+    color: '#818cf8',
+    fontSize: '0.8rem',
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    whiteSpace: 'nowrap',
+  },
+  subTab: {
+    padding: '0.35rem 0.85rem',
+    backgroundColor: '#1e293b',
+    color: '#cbd5e1',
+    border: '1px solid #334155',
+    borderRadius: '16px',
+    fontSize: '0.8rem',
+    fontWeight: '500',
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
+  },
+  activeSubTab: {
+    backgroundColor: '#4f46e5',
+    color: '#ffffff',
+    borderColor: '#6366f1',
   },
   categoryTab: {
     padding: '0.5rem 1.1rem',
