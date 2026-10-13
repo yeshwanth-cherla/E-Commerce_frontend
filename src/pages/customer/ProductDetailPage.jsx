@@ -175,10 +175,25 @@ export const ProductDetailPage = () => {
       <div style={styles.detailGrid}>
         <div style={styles.imageColumn}>
           {product.imageUrl ? (
-            <img src={product.imageUrl} alt={product.name} style={styles.mainImage} />
-          ) : (
-            <div style={styles.placeholderImage}>📦</div>
-          )}
+            <img
+              src={product.imageUrl}
+              alt={product.name}
+              style={styles.mainImage}
+              onError={(e) => {
+                e.currentTarget.style.display = 'none';
+                const placeholder = e.currentTarget.nextElementSibling;
+                if (placeholder) placeholder.style.display = 'flex';
+              }}
+            />
+          ) : null}
+          <div
+            style={{
+              ...styles.placeholderImage,
+              display: product.imageUrl ? 'none' : 'flex',
+            }}
+          >
+            📦
+          </div>
         </div>
 
         <div style={styles.infoColumn}>

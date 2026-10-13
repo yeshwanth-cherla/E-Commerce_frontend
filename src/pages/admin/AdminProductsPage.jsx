@@ -37,6 +37,7 @@ export const AdminProductsPage = () => {
   });
   const [productFormErrors, setProductFormErrors] = useState({});
   const [savingProduct, setSavingProduct] = useState(false);
+  const [modalError, setModalError] = useState(null);
 
   // Category Explorer View State
   const [categoryExplorerExpanded, setCategoryExplorerExpanded] = useState(true);
@@ -155,6 +156,7 @@ export const AdminProductsPage = () => {
       enabled: true,
     });
     setProductFormErrors({});
+    setModalError(null);
     setShowProductModal(true);
   };
 
@@ -171,6 +173,7 @@ export const AdminProductsPage = () => {
       enabled: prod.enabled ?? true,
     });
     setProductFormErrors({});
+    setModalError(null);
     setShowProductModal(true);
   };
 
@@ -211,9 +214,11 @@ export const AdminProductsPage = () => {
   // Save Product (Create or Update)
   const handleSaveProduct = async (e) => {
     e.preventDefault();
+    if (savingProduct) return;
     if (!validateProductForm()) return;
 
     setSavingProduct(true);
+    setModalError(null);
     setError(null);
     try {
       const payload = {
@@ -227,7 +232,12 @@ export const AdminProductsPage = () => {
       };
 
       if (editingProductId) {
-        await apiClient.put(`/api/products/${editingProductId}`, payload);
+        const res = await apiClient.put(`/api/products/${editingProductId}`, payload);
+        const savedProduct = res.data;
+        // Immediately sync local state with backend confirmed entity
+        setProducts((prev) =>
+          prev.map((p) => (p.id === editingProductId ? savedProduct : p))
+        );
         setToastMessage(`Product "${payload.name}" updated successfully!`);
       } else {
         await apiClient.post('/api/products', payload);
@@ -239,7 +249,8 @@ export const AdminProductsPage = () => {
       setTimeout(() => setToastMessage(''), 3500);
     } catch (err) {
       console.error('Save product error:', err);
-      setError(err.response?.data?.message || 'Failed to save product');
+      const errMsg = err.response?.data?.message || err.message || 'Failed to save product';
+      setModalError(errMsg);
     } finally {
       setSavingProduct(false);
     }
@@ -718,6 +729,12 @@ export const AdminProductsPage = () => {
               </button>
             </div>
 
+            {modalError && (
+              <div style={{ marginBottom: '1rem' }}>
+                <AlertMessage type="error" message={modalError} onClose={() => setModalError(null)} />
+              </div>
+            )}
+
             <form onSubmit={handleSaveProduct} style={styles.form}>
               <div style={styles.field}>
                 <label style={styles.label}>
@@ -847,16 +864,21 @@ export const AdminProductsPage = () => {
                   <span style={styles.fieldErrorText}>{productFormErrors.imageUrl}</span>
                 )}
                 {productForm.imageUrl && (
-                  <div style={{ marginTop: '0.4rem', display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                  <div style={{ marginTop: '0.4rem', display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
                     <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Preview:</span>
                     <img
                       src={productForm.imageUrl}
                       alt="Preview"
-                      style={{ width: '40px', height: '40px', borderRadius: '4px', objectFit: 'cover' }}
+                      style={{ width: '40px', height: '40px', borderRadius: '4px', objectFit: 'cover', border: '1px solid #334155' }}
                       onError={(e) => {
                         e.currentTarget.style.display = 'none';
+                        const errSpan = e.currentTarget.nextElementSibling;
+                        if (errSpan) errSpan.style.display = 'inline';
                       }}
                     />
+                    <span style={{ display: 'none', fontSize: '0.75rem', color: '#f59e0b' }}>
+                      ⚠️ Image failed to load. Please verify the URL points directly to an image.
+                    </span>
                   </div>
                 )}
               </div>
