@@ -1,12 +1,11 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import apiClient from '../../services/apiClient';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { apiClient } from '../../services/apiClient';
 import { useAuth } from '../../context/AuthContext';
-import LoadingSpinner from '../../components/LoadingSpinner';
-import AlertMessage from '../../components/AlertMessage';
-import Pagination from '../../components/Pagination';
-import AdminSummaryCard from '../../components/AdminSummaryCard';
+import { LoadingSpinner } from '../../components/LoadingSpinner';
+import { AlertMessage } from '../../components/AlertMessage';
+import { Icon } from '../../components/Icon';
 
-export default function AdminUsersPage() {
+export const AdminUsersPage = () => {
   const { user: currentUser } = useAuth();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -15,7 +14,6 @@ export default function AdminUsersPage() {
 
   // Summary Metrics
   const [metrics, setMetrics] = useState(null);
-  const [metricsLoading, setMetricsLoading] = useState(true);
 
   // Filters & Search
   const [search, setSearch] = useState('');
@@ -36,10 +34,11 @@ export default function AdminUsersPage() {
 
   // 1. Fetch System Metrics & Counts
   const fetchMetrics = useCallback(async () => {
-    setMetricsLoading(true);
     try {
-      const dashRes = await apiClient.get('/api/admin/dashboard');
-      const usersRes = await apiClient.get('/api/admin/users', { params: { page: 0, size: 50 } });
+      const [dashRes, usersRes] = await Promise.all([
+        apiClient.get('/api/admin/dashboard'),
+        apiClient.get('/api/admin/users', { params: { page: 0, size: 50 } }),
+      ]);
       const sampleUsers = usersRes.data.content || [];
 
       const adminCount = sampleUsers.filter((u) => u.role === 'ROLE_ADMIN').length;
@@ -52,8 +51,6 @@ export default function AdminUsersPage() {
       });
     } catch (err) {
       console.warn('User metrics fetch error:', err);
-    } finally {
-      setMetricsLoading(false);
     }
   }, []);
 
@@ -65,7 +62,7 @@ export default function AdminUsersPage() {
       const params = {
         page,
         size: 10,
-        ...(search.trim() && { search: search.trim() })
+        ...(search.trim() && { search: search.trim() }),
       };
       const res = await apiClient.get('/api/admin/users', { params });
       setUsers(res.data.content || []);
@@ -86,6 +83,21 @@ export default function AdminUsersPage() {
     fetchUsers();
   }, [fetchUsers]);
 
+  // Client-side filtering by role & status on current page records
+  const filteredUsers = useMemo(() => {
+    return users.filter((u) => {
+      if (roleFilter !== 'ALL') {
+        if (roleFilter === 'ROLE_ADMIN' && u.role !== 'ROLE_ADMIN') return false;
+        if (roleFilter === 'ROLE_CUSTOMER' && u.role !== 'ROLE_CUSTOMER') return false;
+      }
+      if (statusFilter !== 'ALL') {
+        if (statusFilter === 'ACTIVE' && !u.enabled) return false;
+        if (statusFilter === 'DISABLED' && u.enabled) return false;
+      }
+      return true;
+    });
+  }, [users, roleFilter, statusFilter]);
+
   // Request Confirmation for Status Toggle
   const promptToggleStatus = (targetUser) => {
     if (targetUser.id === currentUser?.id) {
@@ -97,7 +109,7 @@ export default function AdminUsersPage() {
 
   // Perform Status Toggle
   const handleConfirmToggle = async () => {
-    if (!confirmTarget) return;
+    if (!confirmTarget || togglingStatus) return;
 
     setTogglingStatus(true);
     setError('');
@@ -105,17 +117,18 @@ export default function AdminUsersPage() {
     try {
       const newEnabled = !confirmTarget.enabled;
       const res = await apiClient.patch(`/api/admin/users/${confirmTarget.id}/status`, {
-        enabled: newEnabled
+        enabled: newEnabled,
       });
 
-      setSuccess(`User "${confirmTarget.email}" status updated to ${newEnabled ? 'Active' : 'Disabled'}`);
-      
+      setSuccess(`User account "${confirmTarget.email}" status updated to ${newEnabled ? 'Active' : 'Disabled'}.`);
+
       if (selectedUser?.id === confirmTarget.id) {
         setSelectedUser(res.data);
       }
       setConfirmTarget(null);
       fetchUsers();
       fetchMetrics();
+      setTimeout(() => setSuccess(''), 4000);
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to update user account status');
     } finally {
@@ -130,7 +143,7 @@ export default function AdminUsersPage() {
     setUserOrders([]);
     try {
       const res = await apiClient.get(`/api/admin/users/${u.id}/orders`, {
-        params: { page: 0, size: 10 }
+        params: { page: 0, size: 10 },
       });
       setUserOrders(res.data.content || []);
     } catch (err) {
@@ -140,728 +153,586 @@ export default function AdminUsersPage() {
     }
   };
 
-  // Filter in UI by Role or Status if selected
-  const displayedUsers = users.filter((u) => {
-    if (roleFilter !== 'ALL') {
-      if (roleFilter === 'ADMIN' && u.role !== 'ROLE_ADMIN') return false;
-      if (roleFilter === 'USER' && u.role === 'ROLE_ADMIN') return false;
+  const handleClearFilters = () => {
+    setSearch('');
+    setRoleFilter('ALL');
+    setStatusFilter('ALL');
+    setPage(0);
+  };
+
+  const getInitials = (name, email) => {
+    const source = (name || email || 'User').trim();
+    if (source.includes('@')) return source.substring(0, 2).toUpperCase();
+    const parts = source.split(/\s+/);
+    if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+    return source.substring(0, 2).toUpperCase();
+  };
+
+  const formatDate = (isoString) => {
+    if (!isoString) return '—';
+    try {
+      const d = new Date(isoString);
+      return d.toLocaleDateString('en-IN', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+      });
+    } catch {
+      return isoString;
     }
-    if (statusFilter !== 'ALL') {
-      if (statusFilter === 'ACTIVE' && !u.enabled) return false;
-      if (statusFilter === 'DISABLED' && u.enabled) return false;
+  };
+
+  const formatCurrency = (val) => {
+    return `₹${Number(val || 0).toLocaleString('en-IN', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}`;
+  };
+
+  const getOrderStatusBadge = (status) => {
+    switch (status) {
+      case 'CONFIRMED':
+        return <span className="status-pill status-blue">Confirmed</span>;
+      case 'SHIPPED':
+        return <span className="status-pill status-blue">Shipped</span>;
+      case 'DELIVERED':
+        return <span className="status-pill status-green">Delivered</span>;
+      case 'CANCELLED':
+        return <span className="status-pill status-red">Cancelled</span>;
+      case 'PENDING':
+      default:
+        return <span className="status-pill status-amber">{status || 'Pending'}</span>;
     }
-    return true;
-  });
+  };
 
   return (
-    <div className="adm-page-container" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', width: '100%' }}>
-      {/* ── 1. Page Header ── */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-          <h1 style={{ fontSize: '1.6rem', fontWeight: '800', color: '#ffffff', letterSpacing: '-0.025em', margin: 0 }}>
-            User Account Administration
-          </h1>
-          <span
-            style={{
-              padding: '2px 8px',
-              borderRadius: '9999px',
-              fontSize: '0.72rem',
-              fontWeight: '700',
-              backgroundColor: 'rgba(139, 92, 246, 0.15)',
-              color: '#c4b5fd',
-              border: '1px solid rgba(139, 92, 246, 0.35)',
-            }}
-          >
-            Access Control
-          </span>
-        </div>
-        <p style={{ color: '#94a3b8', fontSize: '0.875rem', margin: 0, maxWidth: '650px' }}>
-          Inspect registered customer profiles, oversee system permissions, and manage account access status.
-        </p>
-      </div>
-
-      {/* ── 2. Alerts ── */}
-      <AlertMessage type="error" message={error} onClose={() => setError('')} />
-      <AlertMessage type="success" message={success} onClose={() => setSuccess('')} />
-
-      {/* ── 3. Summary Metric Cards Grid ── */}
-      <div
-        className="adm-grid-3"
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
-          gap: '1rem',
-          width: '100%',
-        }}
-      >
-        <AdminSummaryCard
-          title="Total Registered Users"
-          value={metrics?.totalUsers ?? totalElements}
-          icon="👥"
-          subtitle="All platform customer accounts"
-          color="indigo"
-          loading={metricsLoading}
-        />
-        <AdminSummaryCard
-          title="System Administrators"
-          value={metrics?.adminCount ?? 0}
-          icon="👑"
-          subtitle="Users with ROLE_ADMIN privileges"
-          color="purple"
-          loading={metricsLoading}
-        />
-        <AdminSummaryCard
-          title="Active Accounts"
-          value={metrics?.activeCount ?? 0}
-          icon="✅"
-          subtitle="Enabled accounts with login access"
-          color="emerald"
-          loading={metricsLoading}
-        />
-      </div>
-
-      {/* ── 4. Search & Filter Toolbar ── */}
-      <div
-        className="adm-toolbar"
-        style={{
-          backgroundColor: '#0b1329',
-          border: '1px solid #1e293b',
-          borderRadius: '12px',
-          padding: '1rem 1.25rem',
-          display: 'flex',
-          flexWrap: 'wrap',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: '1rem',
-        }}
-      >
-        {/* Search Input */}
-        <div style={{ position: 'relative', flex: '1 1 300px', maxWidth: '420px' }}>
-          <input
-            type="text"
-            placeholder="Search users by email or full name..."
-            value={search}
-            onChange={(e) => { setSearch(e.target.value); setPage(0); }}
-            style={{
-              width: '100%',
-              backgroundColor: '#070d1e',
-              border: '1px solid #1e293b',
-              borderRadius: '8px',
-              padding: '0.55rem 2rem 0.55rem 2.2rem',
-              fontSize: '0.8rem',
-              color: '#ffffff',
-              outline: 'none',
-              boxSizing: 'border-box',
-            }}
-          />
-          <span style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: '#64748b', fontSize: '0.8rem', pointerEvents: 'none' }}>
-            🔍
-          </span>
-          {search && (
-            <button
-              type="button"
-              onClick={() => { setSearch(''); setPage(0); }}
-              style={{ position: 'absolute', right: '0.75rem', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: '1rem', lineHeight: 1 }}
-              title="Clear search"
-            >
-              &times;
-            </button>
-          )}
-        </div>
-
-        {/* Dropdown Filters */}
-        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.75rem' }}>
-          {/* Role Filter */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-            <span style={{ fontSize: '0.72rem', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.05em', color: '#94a3b8' }}>
-              Role:
-            </span>
-            <select
-              value={roleFilter}
-              onChange={(e) => setRoleFilter(e.target.value)}
-              style={{
-                backgroundColor: '#070d1e',
-                border: '1px solid #1e293b',
-                borderRadius: '8px',
-                padding: '0.45rem 0.75rem',
-                fontSize: '0.75rem',
-                color: '#e2e8f0',
-                outline: 'none',
-              }}
-            >
-              <option value="ALL">All Roles</option>
-              <option value="ADMIN">Admins Only</option>
-              <option value="USER">Customers Only</option>
-            </select>
-          </div>
-
-          {/* Status Filter */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-            <span style={{ fontSize: '0.72rem', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.05em', color: '#94a3b8' }}>
-              Status:
-            </span>
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              style={{
-                backgroundColor: '#070d1e',
-                border: '1px solid #1e293b',
-                borderRadius: '8px',
-                padding: '0.45rem 0.75rem',
-                fontSize: '0.75rem',
-                color: '#e2e8f0',
-                outline: 'none',
-              }}
-            >
-              <option value="ALL">All Status</option>
-              <option value="ACTIVE">Active</option>
-              <option value="DISABLED">Disabled</option>
-            </select>
-          </div>
+    <div className="admin-content">
+      {/* ── Intro Header ── */}
+      <div className="admin-intro">
+        <div>
+          <h2>User Accounts</h2>
+          <p>Review customer registrations, audit administrator privileges, and inspect order records.</p>
         </div>
       </div>
 
-      {/* ── 5. Users Table Section ── */}
-      {loading ? (
-        <div style={{ padding: '3rem', backgroundColor: '#0b1329', border: '1px solid #1e293b', borderRadius: '12px', display: 'flex', justifyContent: 'center' }}>
-          <LoadingSpinner message="Retrieving user accounts..." />
+      {/* Global Alerts */}
+      {error && (
+        <div style={{ marginBottom: '16px' }}>
+          <AlertMessage type="error" message={error} onClose={() => setError('')} />
         </div>
-      ) : displayedUsers.length === 0 ? (
-        <div style={{ padding: '3.5rem 2rem', textAlign: 'center', backgroundColor: '#0b1329', border: '1px solid #1e293b', borderRadius: '12px' }}>
-          <div style={{ fontSize: '2rem', marginBottom: '0.75rem' }}>👤</div>
-          <h3 style={{ fontSize: '1.1rem', fontWeight: '700', color: '#ffffff', margin: '0 0 0.5rem 0' }}>No user accounts found</h3>
-          <p style={{ color: '#94a3b8', fontSize: '0.85rem', margin: 0 }}>
-            {search
-              ? `No user records matching search "${search}".`
-              : 'There are no user accounts matching the selected criteria.'}
-          </p>
-          {(search || roleFilter !== 'ALL' || statusFilter !== 'ALL') && (
-            <button
-              onClick={() => { setSearch(''); setRoleFilter('ALL'); setStatusFilter('ALL'); setPage(0); }}
-              style={{ marginTop: '1rem', padding: '0.5rem 1rem', backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px', color: '#e2e8f0', fontSize: '0.8rem', fontWeight: '600', cursor: 'pointer' }}
-            >
-              Clear All Filters
-            </button>
-          )}
-        </div>
-      ) : (
-        <div
-          className="adm-table-container"
-          style={{
-            width: '100%',
-            overflowX: 'auto',
-            WebkitOverflowScrolling: 'touch',
-            backgroundColor: '#0b1329',
-            border: '1px solid #1e293b',
-            borderRadius: '12px',
-            boxShadow: '0 4px 16px rgba(0, 0, 0, 0.35)',
-          }}
-        >
-          <table
-            className="adm-table"
-            style={{
-              width: '100%',
-              minWidth: '850px',
-              borderCollapse: 'collapse',
-              textAlign: 'left',
-              fontSize: '0.85rem',
-            }}
-          >
-            <thead>
-              <tr style={{ backgroundColor: '#070d1e', borderBottom: '1px solid #1e293b' }}>
-                <th style={{ width: '280px', minWidth: '280px', padding: '0.9rem 1rem', color: '#94a3b8', fontSize: '0.72rem', textTransform: 'uppercase', fontWeight: '700', letterSpacing: '0.05em' }}>
-                  User / Profile
-                </th>
-                <th style={{ width: '140px', minWidth: '140px', padding: '0.9rem 1rem', color: '#94a3b8', fontSize: '0.72rem', textTransform: 'uppercase', fontWeight: '700', letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>
-                  Role
-                </th>
-                <th style={{ width: '140px', minWidth: '140px', padding: '0.9rem 1rem', color: '#94a3b8', fontSize: '0.72rem', textTransform: 'uppercase', fontWeight: '700', letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>
-                  Joined Date
-                </th>
-                <th style={{ width: '130px', minWidth: '130px', padding: '0.9rem 1rem', color: '#94a3b8', fontSize: '0.72rem', textTransform: 'uppercase', fontWeight: '700', letterSpacing: '0.05em', whiteSpace: 'nowrap', textAlign: 'center' }}>
-                  Account Status
-                </th>
-                <th style={{ width: '160px', minWidth: '160px', padding: '0.9rem 1rem', color: '#94a3b8', fontSize: '0.72rem', textTransform: 'uppercase', fontWeight: '700', letterSpacing: '0.05em', whiteSpace: 'nowrap', textAlign: 'right' }}>
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {displayedUsers.map((u) => {
-                const isSelf = u.id === currentUser?.id;
-                const isAdmin = u.role === 'ROLE_ADMIN';
-                const initial = (u.fullName?.charAt(0) || u.email?.charAt(0) || 'U').toUpperCase();
-
-                return (
-                  <tr
-                    key={u.id}
-                    style={{
-                      borderBottom: '1px solid rgba(30, 41, 59, 0.7)',
-                      transition: 'background-color 0.12s ease',
-                    }}
-                  >
-                    {/* User / Profile (Email primary, Name secondary; NO UUID in row) */}
-                    <td style={{ width: '280px', minWidth: '280px', padding: '1rem', verticalAlign: 'middle' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                        <div
-                          style={{
-                            width: '36px',
-                            height: '36px',
-                            borderRadius: '10px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            fontSize: '0.85rem',
-                            fontWeight: '800',
-                            backgroundColor: isAdmin ? 'rgba(139, 92, 246, 0.2)' : 'rgba(99, 102, 241, 0.2)',
-                            color: isAdmin ? '#c4b5fd' : '#a5b4fc',
-                            border: `1px solid ${isAdmin ? 'rgba(139, 92, 246, 0.35)' : 'rgba(99, 102, 241, 0.35)'}`,
-                            flexShrink: 0,
-                          }}
-                        >
-                          {initial}
-                        </div>
-                        <div style={{ overflow: 'hidden' }}>
-                          <div style={{ fontWeight: '700', color: '#ffffff', fontSize: '0.85rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={u.email}>
-                            {u.email}
-                          </div>
-                          <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '0.15rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={u.fullName || 'No name set'}>
-                            {u.fullName || <span style={{ color: '#64748b', fontStyle: 'italic' }}>No name set</span>}
-                          </div>
-                        </div>
-                      </div>
-                    </td>
-
-                    {/* Role Badge */}
-                    <td style={{ width: '140px', minWidth: '140px', padding: '1rem', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>
-                      <span
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '0.3rem',
-                          padding: '3px 9px',
-                          borderRadius: '8px',
-                          fontSize: '0.72rem',
-                          fontWeight: '700',
-                          backgroundColor: isAdmin ? 'rgba(139, 92, 246, 0.15)' : 'rgba(51, 65, 85, 0.5)',
-                          color: isAdmin ? '#c4b5fd' : '#cbd5e1',
-                          border: `1px solid ${isAdmin ? 'rgba(139, 92, 246, 0.35)' : 'rgba(71, 85, 105, 0.6)'}`,
-                        }}
-                      >
-                        {isAdmin ? '👑 Admin' : '👤 Customer'}
-                      </span>
-                    </td>
-
-                    {/* Joined Date */}
-                    <td style={{ width: '140px', minWidth: '140px', padding: '1rem', verticalAlign: 'middle', whiteSpace: 'nowrap', color: '#94a3b8', fontSize: '0.8rem' }}>
-                      {u.createdAt ? new Date(u.createdAt).toLocaleDateString() : 'N/A'}
-                    </td>
-
-                    {/* Account Status Badge */}
-                    <td style={{ width: '130px', minWidth: '130px', padding: '1rem', verticalAlign: 'middle', whiteSpace: 'nowrap', textAlign: 'center' }}>
-                      <span
-                        style={{
-                          display: 'inline-block',
-                          padding: '3px 10px',
-                          borderRadius: '9999px',
-                          fontSize: '0.72rem',
-                          fontWeight: '700',
-                          letterSpacing: '0.025em',
-                          backgroundColor: u.enabled ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
-                          color: u.enabled ? '#6ee7b7' : '#fca5a5',
-                          border: `1px solid ${u.enabled ? 'rgba(16, 185, 129, 0.35)' : 'rgba(239, 68, 68, 0.35)'}`,
-                        }}
-                      >
-                        {u.enabled ? 'Active' : 'Disabled'}
-                      </span>
-                    </td>
-
-                    {/* Actions: View Details and Enable/Disable */}
-                    <td style={{ width: '160px', minWidth: '160px', padding: '1rem', verticalAlign: 'middle', whiteSpace: 'nowrap', textAlign: 'right' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '0.5rem' }}>
-                        <button
-                          onClick={() => openUserModal(u)}
-                          style={{
-                            padding: '0.4rem 0.75rem',
-                            borderRadius: '8px',
-                            fontSize: '0.75rem',
-                            fontWeight: '600',
-                            backgroundColor: 'rgba(99, 102, 241, 0.15)',
-                            color: '#a5b4fc',
-                            border: '1px solid rgba(99, 102, 241, 0.35)',
-                            cursor: 'pointer',
-                            transition: 'all 0.15s ease',
-                          }}
-                        >
-                          View Details
-                        </button>
-
-                        <button
-                          disabled={isSelf || togglingStatus}
-                          onClick={() => promptToggleStatus(u)}
-                          title={isSelf ? 'You cannot disable your own admin account' : undefined}
-                          style={{
-                            padding: '0.4rem 0.75rem',
-                            borderRadius: '8px',
-                            fontSize: '0.75rem',
-                            fontWeight: '600',
-                            border: '1px solid',
-                            cursor: isSelf ? 'not-allowed' : 'pointer',
-                            opacity: isSelf ? 0.4 : 1,
-                            backgroundColor: isSelf
-                              ? '#1e293b'
-                              : u.enabled
-                              ? 'rgba(239, 68, 68, 0.15)'
-                              : 'rgba(16, 185, 129, 0.15)',
-                            color: isSelf
-                              ? '#64748b'
-                              : u.enabled
-                              ? '#fca5a5'
-                              : '#6ee7b7',
-                            borderColor: isSelf
-                              ? '#334155'
-                              : u.enabled
-                              ? 'rgba(239, 68, 68, 0.35)'
-                              : 'rgba(16, 185, 129, 0.35)',
-                            transition: 'all 0.15s ease',
-                          }}
-                        >
-                          {u.enabled ? 'Disable' : 'Enable'}
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-
-          {/* Table Footer / Pagination */}
-          <div
-            className="adm-table-footer"
-            style={{
-              padding: '1rem 1.25rem',
-              backgroundColor: '#070d1e',
-              borderTop: '1px solid #1e293b',
-              display: 'flex',
-              flexWrap: 'wrap',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: '0.75rem',
-            }}
-          >
-            <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
-              Showing <strong style={{ color: '#ffffff' }}>{displayedUsers.length}</strong> of{' '}
-              <strong style={{ color: '#ffffff' }}>{totalElements}</strong> users
-            </div>
-            <Pagination currentPage={page} totalPages={totalPages} onPageChange={setPage} />
-          </div>
+      )}
+      {success && (
+        <div style={{ marginBottom: '16px' }}>
+          <AlertMessage type="success" message={success} onClose={() => setSuccess('')} />
         </div>
       )}
 
-      {/* ── 6. View Details & Order History Modal ── */}
-      {selectedUser && (
-        <div
-          className="adm-modal-overlay"
-          style={{
-            position: 'fixed',
-            inset: 0,
-            backgroundColor: 'rgba(0, 0, 0, 0.85)',
-            backdropFilter: 'blur(4px)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '1rem',
-            zIndex: 1000,
-          }}
-        >
-          <div
-            className="adm-modal-card"
-            style={{
-              backgroundColor: '#0b1329',
-              border: '1px solid #1e293b',
-              borderRadius: '16px',
-              maxWidth: '650px',
-              width: '100%',
-              padding: '1.5rem',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '1.25rem',
-              maxHeight: '90vh',
-              overflowY: 'auto',
-              boxSizing: 'border-box',
-            }}
-          >
-            {/* Modal Header */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid #1e293b', paddingBottom: '1rem' }}>
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <h3 style={{ fontSize: '1.15rem', fontWeight: '800', color: '#ffffff', margin: 0 }}>
-                    {selectedUser.email}
-                  </h3>
-                  <span
-                    style={{
-                      padding: '2px 8px',
-                      borderRadius: '9999px',
-                      fontSize: '0.72rem',
-                      fontWeight: '700',
-                      backgroundColor: selectedUser.enabled ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
-                      color: selectedUser.enabled ? '#4ade80' : '#f87171',
-                      border: `1px solid ${selectedUser.enabled ? 'rgba(16, 185, 129, 0.35)' : 'rgba(239, 68, 68, 0.35)'}`,
-                    }}
-                  >
-                    {selectedUser.enabled ? 'Active Account' : 'Disabled Account'}
-                  </span>
-                </div>
-                {/* User ID displayed only inside View Details Modal */}
-                <div style={{ fontSize: '0.72rem', color: '#94a3b8', fontFamily: 'monospace', marginTop: '0.35rem' }}>
-                  User UUID: {selectedUser.id}
-                </div>
-              </div>
-              <button
-                onClick={() => setSelectedUser(null)}
-                style={{
-                  width: '32px',
-                  height: '32px',
-                  borderRadius: '8px',
-                  backgroundColor: '#1e293b',
-                  border: '1px solid #334155',
-                  color: '#94a3b8',
-                  fontSize: '1.2rem',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-                aria-label="Close modal"
-              >
-                &times;
-              </button>
-            </div>
-
-            {/* Profile Overview Card */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1rem', backgroundColor: 'rgba(30, 41, 59, 0.4)', padding: '1rem', borderRadius: '10px', border: '1px solid #1e293b', fontSize: '0.8rem' }}>
-              <div>
-                <span style={{ fontSize: '0.7rem', fontWeight: '700', textTransform: 'uppercase', color: '#94a3b8', display: 'block', marginBottom: '0.2rem' }}>Full Name</span>
-                <strong style={{ color: '#ffffff', fontSize: '0.9rem' }}>{selectedUser.fullName || 'Not provided'}</strong>
-              </div>
-              <div>
-                <span style={{ fontSize: '0.7rem', fontWeight: '700', textTransform: 'uppercase', color: '#94a3b8', display: 'block', marginBottom: '0.2rem' }}>Assigned Role</span>
-                <strong style={{ color: selectedUser.role === 'ROLE_ADMIN' ? '#c4b5fd' : '#93c5fd', fontSize: '0.9rem' }}>
-                  {selectedUser.role === 'ROLE_ADMIN' ? '👑 Administrator' : '👤 Customer'}
-                </strong>
-              </div>
-              <div>
-                <span style={{ fontSize: '0.7rem', fontWeight: '700', textTransform: 'uppercase', color: '#94a3b8', display: 'block', marginBottom: '0.2rem' }}>Account Status</span>
-                <strong style={{ color: selectedUser.enabled ? '#4ade80' : '#f87171', fontSize: '0.9rem' }}>
-                  {selectedUser.enabled ? 'Enabled' : 'Disabled'}
-                </strong>
-              </div>
-              <div>
-                <span style={{ fontSize: '0.7rem', fontWeight: '700', textTransform: 'uppercase', color: '#94a3b8', display: 'block', marginBottom: '0.2rem' }}>Registration Date</span>
-                <span style={{ color: '#cbd5e1', fontSize: '0.8rem' }}>
-                  {selectedUser.createdAt ? new Date(selectedUser.createdAt).toLocaleString() : 'N/A'}
-                </span>
-              </div>
-            </div>
-
-            {/* Quick Status Control */}
-            <div style={{ padding: '1rem', backgroundColor: 'rgba(30, 41, 59, 0.4)', borderRadius: '10px', border: '1px solid #1e293b', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
-              <div>
-                <div style={{ fontSize: '0.8rem', fontWeight: '700', color: '#ffffff' }}>Account Access Control</div>
-                <div style={{ fontSize: '0.72rem', color: '#94a3b8', marginTop: '0.15rem' }}>
-                  {selectedUser.enabled
-                    ? 'Disabling will prevent this customer from logging in or placing orders.'
-                    : 'Enabling restores full login access and customer account features.'}
-                </div>
-              </div>
-
-              <button
-                disabled={selectedUser.id === currentUser?.id || togglingStatus}
-                onClick={() => promptToggleStatus(selectedUser)}
-                style={{
-                  padding: '0.45rem 0.95rem',
-                  fontSize: '0.75rem',
-                  fontWeight: '700',
-                  borderRadius: '8px',
-                  border: '1px solid',
-                  cursor: (selectedUser.id === currentUser?.id || togglingStatus) ? 'not-allowed' : 'pointer',
-                  opacity: (selectedUser.id === currentUser?.id || togglingStatus) ? 0.4 : 1,
-                  backgroundColor: selectedUser.id === currentUser?.id
-                    ? '#1e293b'
-                    : selectedUser.enabled
-                    ? 'rgba(239, 68, 68, 0.15)'
-                    : 'rgba(16, 185, 129, 0.15)',
-                  color: selectedUser.id === currentUser?.id
-                    ? '#64748b'
-                    : selectedUser.enabled
-                    ? '#fca5a5'
-                    : '#6ee7b7',
-                  borderColor: selectedUser.id === currentUser?.id
-                    ? '#334155'
-                    : selectedUser.enabled
-                    ? 'rgba(239, 68, 68, 0.35)'
-                    : 'rgba(16, 185, 129, 0.35)',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {selectedUser.enabled ? 'Disable Account Access' : 'Enable Account Access'}
-              </button>
-            </div>
-
-            {/* Customer Past Order History */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <span style={{ fontSize: '0.72rem', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.05em', color: '#94a3b8' }}>
-                  Customer Order History
-                </span>
-                <span style={{ fontSize: '0.72rem', color: '#64748b' }}>{userOrders.length} order(s)</span>
-              </div>
-
-              {ordersLoading ? (
-                <div style={{ padding: '1.5rem', textAlign: 'center' }}>
-                  <LoadingSpinner message="Fetching user order records..." />
-                </div>
-              ) : userOrders.length === 0 ? (
-                <div style={{ padding: '1.5rem', backgroundColor: 'rgba(30, 41, 59, 0.3)', borderRadius: '8px', border: '1px solid #1e293b', textAlign: 'center', fontSize: '0.75rem', color: '#94a3b8' }}>
-                  No orders on record for this customer.
-                </div>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', maxHeight: '180px', overflowY: 'auto' }}>
-                  {userOrders.map((ord) => (
-                    <div
-                      key={ord.id}
-                      style={{
-                        padding: '0.65rem 0.85rem',
-                        backgroundColor: 'rgba(30, 41, 59, 0.4)',
-                        borderRadius: '8px',
-                        border: '1px solid #1e293b',
-                        fontSize: '0.75rem',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                      }}
-                    >
-                      <div>
-                        <div style={{ fontWeight: '700', color: '#ffffff', fontFamily: 'monospace' }}>Order #{ord.id.substring(0, 8)}</div>
-                        <div style={{ fontSize: '0.7rem', color: '#94a3b8', marginTop: '0.15rem' }}>
-                          {new Date(ord.createdAt).toLocaleDateString()} &bull; {ord.items?.length || 0} item(s)
-                        </div>
-                      </div>
-                      <div style={{ textAlign: 'right' }}>
-                        <div style={{ fontWeight: '800', color: '#ffffff', fontSize: '0.85rem' }}>₹{Number(ord.totalAmount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                        <span style={{ fontSize: '0.68rem', fontWeight: '700', color: '#a5b4fc', textTransform: 'uppercase' }}>
-                          {ord.status}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+      {/* ── Summary Metric Cards ── */}
+      <div className="metric-grid" style={{ marginBottom: '20px' }}>
+        <article className="metric-card">
+          <span>
+            <Icon name="users" size={20} />
+          </span>
+          <div>
+            <small>Total Registered Users</small>
+            <strong>{metrics?.totalUsers ?? totalElements}</strong>
           </div>
-        </div>
-      )}
+        </article>
 
-      {/* ── 7. Confirmation Modal for Destructive/Access-Changing Action ── */}
-      {confirmTarget && (
-        <div
-          className="adm-modal-overlay"
-          style={{
-            position: 'fixed',
-            inset: 0,
-            backgroundColor: 'rgba(0, 0, 0, 0.85)',
-            backdropFilter: 'blur(4px)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '1rem',
-            zIndex: 1100,
-          }}
-        >
-          <div
-            className="adm-modal-card"
-            style={{
-              backgroundColor: '#0b1329',
-              border: '1px solid #1e293b',
-              borderRadius: '16px',
-              maxWidth: '440px',
-              width: '100%',
-              padding: '1.5rem',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '1rem',
-              boxSizing: 'border-box',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-              <div
-                style={{
-                  width: '40px',
-                  height: '40px',
-                  borderRadius: '10px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: '1.25rem',
-                  backgroundColor: confirmTarget.enabled ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.15)',
-                  border: `1px solid ${confirmTarget.enabled ? 'rgba(239, 68, 68, 0.35)' : 'rgba(16, 185, 129, 0.35)'}`,
-                }}
-              >
-                {confirmTarget.enabled ? '⚠️' : '🔓'}
-              </div>
-              <div>
-                <h3 style={{ fontSize: '1.05rem', fontWeight: '800', color: '#ffffff', margin: 0 }}>
-                  {confirmTarget.enabled ? 'Disable Account Access?' : 'Enable Account Access?'}
-                </h3>
-                <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '0.15rem' }}>{confirmTarget.email}</div>
-              </div>
-            </div>
+        <article className="metric-card">
+          <span>
+            <Icon name="check" size={20} />
+          </span>
+          <div>
+            <small>Active Accounts</small>
+            <strong>{metrics?.activeCount ?? totalElements}</strong>
+          </div>
+        </article>
 
-            <p style={{ fontSize: '0.8rem', color: '#cbd5e1', lineHeight: '1.45', margin: 0 }}>
-              {confirmTarget.enabled
-                ? `Disabling will immediately revoke login access for "${confirmTarget.email}". They will not be able to log in or create orders until re-enabled.`
-                : `Enabling will restore full system access for "${confirmTarget.email}", allowing them to log in and place orders.`}
-            </p>
+        <article className="metric-card">
+          <span>
+            <Icon name="user" size={20} />
+          </span>
+          <div>
+            <small>Administrator Privileges</small>
+            <strong>{metrics?.adminCount ?? 1}</strong>
+          </div>
+        </article>
 
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '0.75rem', borderTop: '1px solid #1e293b', paddingTop: '0.75rem' }}>
+        <article className="metric-card">
+          <span>
+            <Icon name="box" size={20} />
+          </span>
+          <div>
+            <small>Current Page Accounts</small>
+            <strong>{filteredUsers.length}</strong>
+          </div>
+        </article>
+      </div>
+
+      {/* ── Main Users Panel ── */}
+      <section className="panel">
+        {/* Filters Bar */}
+        <div className="filters">
+          {/* Search Box */}
+          <label className="admin-search" style={{ minWidth: '240px', maxWidth: '340px' }}>
+            <Icon name="search" size={16} />
+            <input
+              id="admin-users-search"
+              type="text"
+              placeholder="Search by name or email..."
+              value={search}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setPage(0);
+              }}
+            />
+            {search && (
               <button
                 type="button"
-                onClick={() => setConfirmTarget(null)}
-                style={{
-                  padding: '0.5rem 1rem',
-                  backgroundColor: '#1e293b',
-                  border: '1px solid #334155',
-                  borderRadius: '8px',
-                  color: '#e2e8f0',
-                  fontSize: '0.75rem',
-                  fontWeight: '600',
-                  cursor: 'pointer',
+                onClick={() => {
+                  setSearch('');
+                  setPage(0);
                 }}
+                style={{ border: 0, background: 'none', color: 'var(--muted)', cursor: 'pointer', padding: 0 }}
+                aria-label="Clear search"
+              >
+                <Icon name="close" size={14} />
+              </button>
+            )}
+          </label>
+
+          {/* Role Filter Dropdown */}
+          <select
+            id="admin-users-role-filter"
+            aria-label="Filter by role"
+            value={roleFilter}
+            onChange={(e) => setRoleFilter(e.target.value)}
+          >
+            <option value="ALL">All roles</option>
+            <option value="ROLE_ADMIN">Administrators</option>
+            <option value="ROLE_CUSTOMER">Customers</option>
+          </select>
+
+          {/* Status Filter Dropdown */}
+          <select
+            id="admin-users-status-filter"
+            aria-label="Filter by account status"
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+          >
+            <option value="ALL">All statuses</option>
+            <option value="ACTIVE">Active only</option>
+            <option value="DISABLED">Disabled only</option>
+          </select>
+
+          {/* Result Count Indicator */}
+          <span className="result-count">
+            {filteredUsers.length} {filteredUsers.length === 1 ? 'user' : 'users'} shown
+          </span>
+        </div>
+
+        {/* Active Filter Chips */}
+        {(search || roleFilter !== 'ALL' || statusFilter !== 'ALL') && (
+          <div className="active-filters-bar">
+            <span style={{ color: 'var(--muted)', fontWeight: 600, fontSize: '11px' }}>Active filters:</span>
+            {search && (
+              <span className="active-filter-chip">
+                Search: &ldquo;{search}&rdquo;
+                <button type="button" onClick={() => { setSearch(''); setPage(0); }} aria-label="Remove search filter">
+                  ✕
+                </button>
+              </span>
+            )}
+            {roleFilter !== 'ALL' && (
+              <span className="active-filter-chip">
+                Role: {roleFilter === 'ROLE_ADMIN' ? 'Admin' : 'Customer'}
+                <button type="button" onClick={() => setRoleFilter('ALL')} aria-label="Remove role filter">
+                  ✕
+                </button>
+              </span>
+            )}
+            {statusFilter !== 'ALL' && (
+              <span className="active-filter-chip">
+                Status: {statusFilter === 'ACTIVE' ? 'Active' : 'Disabled'}
+                <button type="button" onClick={() => setStatusFilter('ALL')} aria-label="Remove status filter">
+                  ✕
+                </button>
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={handleClearFilters}
+              className="btn btn-ghost"
+              style={{ fontSize: '11px', padding: '2px 8px', marginLeft: 'auto' }}
+            >
+              Reset all filters
+            </button>
+          </div>
+        )}
+
+        {/* Users Table */}
+        {loading ? (
+          <div style={{ padding: '48px 0' }}>
+            <LoadingSpinner message="Loading registered user accounts..." />
+          </div>
+        ) : filteredUsers.length === 0 ? (
+          <div style={{ padding: '60px 20px', textAlign: 'center', color: 'var(--muted)' }}>
+            <Icon name="users" size={36} style={{ color: 'var(--subtle)', marginBottom: '8px' }} />
+            <h3 style={{ margin: '8px 0 4px', color: 'var(--ink)' }}>No users found</h3>
+            <p style={{ margin: 0, fontSize: '12px' }}>
+              No user accounts match your active search or status filters.
+            </p>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={handleClearFilters}
+              style={{ marginTop: '16px', fontSize: '12px' }}
+            >
+              Clear filters
+            </button>
+          </div>
+        ) : (
+          <div className="table-scroll">
+            <table className="admin-table">
+              <thead>
+                <tr>
+                  <th>User</th>
+                  <th>Role</th>
+                  <th>Phone</th>
+                  <th>Joined Date</th>
+                  <th>Account Status</th>
+                  <th aria-label="Actions" style={{ textAlign: 'right', paddingRight: '20px' }}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredUsers.map((u) => {
+                  const isSelf = u.id === currentUser?.id;
+                  const initials = getInitials(u.fullName, u.email);
+
+                  return (
+                    <tr key={u.id}>
+                      <td>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <span className="user-avatar-pill">{initials}</span>
+                          <div style={{ display: 'flex', flexDirection: 'column' }}>
+                            <strong style={{ color: 'var(--ink)', fontSize: '13px' }}>
+                              {u.fullName || 'User'}
+                              {isSelf && (
+                                <span style={{ marginLeft: '6px', fontSize: '10px', color: 'var(--primary)', fontWeight: 600 }}>
+                                  (You)
+                                </span>
+                              )}
+                            </strong>
+                            <small style={{ color: 'var(--muted)', fontSize: '11px' }}>
+                              {u.email}
+                            </small>
+                          </div>
+                        </div>
+                      </td>
+                      <td>
+                        <span
+                          className={`status-pill ${
+                            u.role === 'ROLE_ADMIN' ? 'status-blue' : 'status-green'
+                          }`}
+                        >
+                          {u.role === 'ROLE_ADMIN' ? 'Admin' : 'Customer'}
+                        </span>
+                      </td>
+                      <td>
+                        <span style={{ color: '#4e5668', fontSize: '12px' }}>
+                          {u.phone || '—'}
+                        </span>
+                      </td>
+                      <td>{formatDate(u.createdAt)}</td>
+                      <td>
+                        <span
+                          className={`status-pill ${
+                            u.enabled ? 'status-green' : 'status-red'
+                          }`}
+                        >
+                          {u.enabled ? 'Active' : 'Disabled'}
+                        </span>
+                      </td>
+                      <td style={{ textAlign: 'right', paddingRight: '20px' }}>
+                        <div style={{ display: 'inline-flex', gap: '6px' }}>
+                          <button
+                            type="button"
+                            className="table-action"
+                            onClick={() => openUserModal(u)}
+                            title="Inspect user details and view purchase history"
+                          >
+                            Profile & Orders
+                          </button>
+                          <button
+                            type="button"
+                            className="table-action"
+                            onClick={() => promptToggleStatus(u)}
+                            disabled={isSelf}
+                            style={{
+                              color: isSelf
+                                ? 'var(--subtle)'
+                                : u.enabled
+                                ? 'var(--danger)'
+                                : 'var(--success)',
+                              opacity: isSelf ? 0.5 : 1,
+                              cursor: isSelf ? 'not-allowed' : 'pointer',
+                            }}
+                            title={
+                              isSelf
+                                ? 'You cannot disable your own administrator account'
+                                : u.enabled
+                                ? 'Deactivate user account'
+                                : 'Re-enable user account'
+                            }
+                          >
+                            {u.enabled ? 'Disable' : 'Enable'}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="pagination">
+            <span>
+              Showing {page * 10 + 1}–{Math.min((page + 1) * 10, totalElements)} of {totalElements} users
+            </span>
+            <div>
+              <button
+                type="button"
+                disabled={page === 0}
+                onClick={() => setPage((p) => Math.max(0, p - 1))}
+              >
+                Previous
+              </button>
+              {Array.from({ length: totalPages }, (_, i) => i)
+                .filter((i) => i === 0 || i === totalPages - 1 || Math.abs(i - page) <= 1)
+                .map((i, idx, arr) => (
+                  <React.Fragment key={i}>
+                    {idx > 0 && arr[idx - 1] !== i - 1 && (
+                      <span style={{ padding: '0 4px', color: 'var(--muted)' }}>…</span>
+                    )}
+                    <button
+                      type="button"
+                      className={i === page ? 'active' : ''}
+                      onClick={() => setPage(i)}
+                    >
+                      {i + 1}
+                    </button>
+                  </React.Fragment>
+                ))}
+              <button
+                type="button"
+                disabled={page >= totalPages - 1}
+                onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
+      </section>
+
+      {/* ── User Details & Purchase History Modal ── */}
+      {selectedUser && (
+        <div className="modal-backdrop" onClick={() => setSelectedUser(null)}>
+          <div className="modal" style={{ maxWidth: '680px' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <div>
+                <h2>{selectedUser.fullName || selectedUser.email}</h2>
+                <p>User ID: #{selectedUser.id.substring(0, 8).toUpperCase()}</p>
+              </div>
+              <button
+                type="button"
+                className="modal-close"
+                onClick={() => setSelectedUser(null)}
+                aria-label="Close dialog"
+              >
+                <Icon name="close" size={16} />
+              </button>
+            </div>
+
+            <div className="modal-body">
+              {/* Profile Details Grid */}
+              <div className="order-detail-meta-grid" style={{ marginBottom: '20px' }}>
+                <div className="order-detail-meta-item">
+                  <small>Email Address</small>
+                  <b>{selectedUser.email}</b>
+                </div>
+                <div className="order-detail-meta-item">
+                  <small>Phone Number</small>
+                  <b>{selectedUser.phone || 'Not provided'}</b>
+                </div>
+                <div className="order-detail-meta-item">
+                  <small>Assigned Role</small>
+                  <div>
+                    <span className={`status-pill ${selectedUser.role === 'ROLE_ADMIN' ? 'status-blue' : 'status-green'}`}>
+                      {selectedUser.role === 'ROLE_ADMIN' ? 'Administrator' : 'Customer'}
+                    </span>
+                  </div>
+                </div>
+                <div className="order-detail-meta-item">
+                  <small>Account Status</small>
+                  <div>
+                    <span className={`status-pill ${selectedUser.enabled ? 'status-green' : 'status-red'}`}>
+                      {selectedUser.enabled ? 'Active' : 'Disabled'}
+                    </span>
+                  </div>
+                </div>
+                <div className="order-detail-meta-item">
+                  <small>Registration Date</small>
+                  <b>{formatDate(selectedUser.createdAt)}</b>
+                </div>
+              </div>
+
+              {/* Purchase History Section */}
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                  <span style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--muted)', fontWeight: 700 }}>
+                    Purchase History ({userOrders.length})
+                  </span>
+                  <small style={{ color: 'var(--muted)', fontSize: '11px' }}>
+                    Real order records from database
+                  </small>
+                </div>
+
+                {ordersLoading ? (
+                  <div style={{ padding: '32px 0' }}>
+                    <LoadingSpinner message="Fetching user order records..." />
+                  </div>
+                ) : userOrders.length === 0 ? (
+                  <div style={{ padding: '36px 16px', textAlign: 'center', color: 'var(--muted)', border: '1px solid var(--line)', borderRadius: '8px', background: 'var(--canvas)', fontSize: '12px' }}>
+                    This customer has not placed any orders yet.
+                  </div>
+                ) : (
+                  <div style={{ border: '1px solid var(--line)', borderRadius: '8px', overflow: 'hidden' }}>
+                    <table className="admin-items-table">
+                      <thead>
+                        <tr>
+                          <th>Order</th>
+                          <th>Date</th>
+                          <th>Total</th>
+                          <th>Fulfillment</th>
+                          <th>Payment</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {userOrders.map((ord) => (
+                          <tr key={ord.id}>
+                            <td>
+                              <b style={{ color: 'var(--ink)' }}>
+                                #{ord.id.substring(0, 8).toUpperCase()}
+                              </b>
+                            </td>
+                            <td>{formatDate(ord.createdAt)}</td>
+                            <td>
+                              <b style={{ color: 'var(--ink)' }}>{formatCurrency(ord.totalAmount)}</b>
+                            </td>
+                            <td>{getOrderStatusBadge(ord.status)}</td>
+                            <td>
+                              <span
+                                className={`status-pill ${
+                                  ord.paymentStatus === 'SUCCESS' ? 'status-green' : 'status-amber'
+                                }`}
+                              >
+                                {ord.paymentStatus === 'SUCCESS' ? 'Paid' : 'COD · Pending'}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setSelectedUser(null)}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Confirm Status Change Dialog ── */}
+      {confirmTarget && (
+        <div
+          className="modal-backdrop"
+          onClick={() => !togglingStatus && setConfirmTarget(null)}
+        >
+          <div className="modal" style={{ maxWidth: '480px' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <div>
+                <h2>
+                  {confirmTarget.enabled ? 'Disable user account?' : 'Re-enable user account?'}
+                </h2>
+                <p>
+                  Target user: <b>{confirmTarget.email}</b>
+                </p>
+              </div>
+              <button
+                type="button"
+                className="modal-close"
+                disabled={togglingStatus}
+                onClick={() => setConfirmTarget(null)}
+              >
+                <Icon name="close" size={16} />
+              </button>
+            </div>
+
+            <div className="modal-body">
+              {confirmTarget.enabled ? (
+                <div className="warning-box">
+                  <b>Account deactivation notice:</b>
+                  <span>
+                    The user will be immediately blocked from signing in or placing new orders. Existing order records and account data will remain intact in the database.
+                  </span>
+                </div>
+              ) : (
+                <p className="modal-copy">
+                  Re-enabling will allow <b>{confirmTarget.email}</b> to sign in and resume purchasing in the storefront.
+                </p>
+              )}
+            </div>
+
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="btn btn-secondary"
+                disabled={togglingStatus}
+                onClick={() => setConfirmTarget(null)}
               >
                 Cancel
               </button>
               <button
                 type="button"
+                className={confirmTarget.enabled ? 'btn btn-danger' : 'btn btn-primary'}
                 disabled={togglingStatus}
                 onClick={handleConfirmToggle}
-                style={{
-                  padding: '0.5rem 1rem',
-                  backgroundColor: confirmTarget.enabled ? '#ef4444' : '#10b981',
-                  border: 'none',
-                  borderRadius: '8px',
-                  color: '#ffffff',
-                  fontSize: '0.75rem',
-                  fontWeight: '700',
-                  cursor: togglingStatus ? 'not-allowed' : 'pointer',
-                  opacity: togglingStatus ? 0.6 : 1,
-                }}
               >
-                {togglingStatus
-                  ? 'Processing...'
-                  : confirmTarget.enabled
-                  ? 'Yes, Disable Account'
-                  : 'Yes, Enable Account'}
+                {togglingStatus ? (
+                  <>
+                    <span className="spinner" style={{ marginRight: '6px' }} />
+                    Updating…
+                  </>
+                ) : confirmTarget.enabled ? (
+                  'Confirm deactivation'
+                ) : (
+                  'Confirm activation'
+                )}
               </button>
             </div>
           </div>
@@ -869,4 +740,6 @@ export default function AdminUsersPage() {
       )}
     </div>
   );
-}
+};
+
+export default AdminUsersPage;

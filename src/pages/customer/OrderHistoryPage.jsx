@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { Link } from 'react-router-dom';
-import { apiClient } from '../../services/apiClient';
+import { Link, useNavigate } from 'react-router-dom';
+import apiClient from '../../services/apiClient';
+import { Icon } from '../../components/Icon';
 import { LoadingSpinner } from '../../components/LoadingSpinner';
 import { Pagination } from '../../components/Pagination';
 import { AlertMessage } from '../../components/AlertMessage';
@@ -11,6 +12,13 @@ export const OrderHistoryPage = () => {
   const [totalPages, setTotalPages] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const navigate = useNavigate();
+
+  const formatPrice = (value) => {
+    return '₹' + Number(value || 0).toLocaleString('en-IN', {
+      maximumFractionDigits: 2,
+    });
+  };
 
   const loadOrders = useCallback(async () => {
     setLoading(true);
@@ -33,210 +41,197 @@ export const OrderHistoryPage = () => {
     loadOrders();
   }, [loadOrders]);
 
-  const getStatusColor = (status) => {
+  const getStatusPillClass = (status) => {
     switch (status) {
-      case 'PENDING':
-        return '#f59e0b';
-      case 'CONFIRMED':
-        return '#3b82f6';
-      case 'SHIPPED':
-        return '#8b5cf6';
       case 'DELIVERED':
-        return '#22c55e';
+        return 'status-pill status-green';
+      case 'CONFIRMED':
+      case 'SHIPPED':
+        return 'status-pill status-blue';
       case 'CANCELLED':
-        return '#ef4444';
+        return 'status-pill status-red';
+      case 'PENDING':
       default:
-        return '#94a3b8';
+        return 'status-pill status-amber';
     }
   };
 
-  if (loading) return <LoadingSpinner message="Loading your order history..." />;
+  const getTrackerStepClass = (stepKey, currentStatus) => {
+    if (currentStatus === 'CANCELLED') return '';
+
+    const orderFlow = ['CONFIRMED', 'SHIPPED', 'DELIVERED'];
+    const currentIdx = orderFlow.indexOf(currentStatus);
+    const targetIdx = orderFlow.indexOf(stepKey);
+
+    if (currentIdx >= targetIdx) {
+      return 'complete';
+    }
+    return '';
+  };
+
+  if (loading && orders.length === 0) {
+    return (
+      <main className="shell page">
+        <LoadingSpinner message="Loading your order history..." />
+      </main>
+    );
+  }
 
   return (
-    <div style={styles.container}>
-      <h1 style={styles.title}>Your Order History</h1>
+    <main className="shell page">
+      <div className="page-title page-title-row">
+        <div>
+          <span className="kicker">Your account</span>
+          <h1>My orders</h1>
+          <p>Review recent purchases and track live delivery progress.</p>
+        </div>
+      </div>
 
-      <AlertMessage type="error" message={error} onClose={() => setError(null)} />
+      {error && (
+        <div style={{ marginBottom: '24px' }}>
+          <AlertMessage type="error" message={error} onClose={() => setError(null)} />
+        </div>
+      )}
 
       {orders.length === 0 ? (
-        <div style={styles.emptyCard}>
-          <h3>No orders found</h3>
-          <p style={{ color: '#94a3b8', marginTop: '0.5rem', marginBottom: '1.5rem' }}>
-            You haven't placed any orders yet.
-          </p>
-          <Link to="/" style={styles.shopBtn}>
-            Start Shopping
-          </Link>
+        <div className="empty-state">
+          <span className="empty-icon">
+            <Icon name="orders" size={28} />
+          </span>
+          <h3>No orders yet</h3>
+          <p>Completed purchases and their delivery progress will appear here.</p>
+          <button className="btn btn-primary" onClick={() => navigate('/')}>
+            Start shopping
+          </button>
         </div>
       ) : (
-        <div style={styles.ordersList}>
-          {orders.map((order) => (
-            <div key={order.id} style={styles.orderCard}>
-              <div style={styles.orderHeader}>
-                <div>
-                  <span style={styles.orderLabel}>Order ID</span>
-                  <div style={styles.orderId}>{order.id}</div>
-                  <span style={styles.orderDate}>
-                    Placed on {new Date(order.createdAt).toLocaleDateString()}
-                  </span>
-                  <div style={{ fontSize: '0.8rem', color: '#cbd5e1', marginTop: '4px' }}>
-                    Payment: <strong>Cash on Delivery (COD)</strong> •{' '}
-                    <span
-                      style={{
-                        color: order.paymentStatus === 'SUCCESS' ? '#4ade80' : '#f59e0b',
-                        fontWeight: '700',
-                      }}
-                    >
-                      {order.paymentStatus === 'SUCCESS' ? 'PAID' : 'UNPAID / PENDING'}
+        <>
+          <div className="orders-list">
+            {orders.map((order) => {
+              const isCancelled = order.status === 'CANCELLED';
+              const isPaid = order.paymentStatus === 'SUCCESS';
+              const orderDate = new Date(order.createdAt).toLocaleDateString('en-IN', {
+                day: 'numeric',
+                month: 'short',
+                year: 'numeric',
+              });
+
+              return (
+                <section className="order-card" key={order.id}>
+                  {/* Order Header */}
+                  <div className="order-head">
+                    <div>
+                      <small>Order reference</small>
+                      <b title={order.id} style={{ fontFamily: 'monospace' }}>
+                        #{order.id ? order.id.substring(0, 8).toUpperCase() : 'ORDER'}
+                      </b>
+                    </div>
+
+                    <div>
+                      <small>Placed on</small>
+                      <b>{orderDate}</b>
+                    </div>
+
+                    <div>
+                      <small>Total amount</small>
+                      <b>{formatPrice(order.totalAmount)}</b>
+                    </div>
+
+                    <span className={getStatusPillClass(order.status)}>
+                      {order.status}
                     </span>
                   </div>
-                </div>
 
-                <div style={{ textAlign: 'right' }}>
-                  <span
-                    style={{
-                      ...styles.statusBadge,
-                      backgroundColor: getStatusColor(order.status),
-                    }}
-                  >
-                    {order.status}
-                  </span>
-                  <div style={styles.orderTotal}>₹{Number(order.totalAmount).toFixed(2)}</div>
-                </div>
-              </div>
+                  {/* Order Content */}
+                  <div className="order-content">
+                    {/* Products Preview */}
+                    <div className="order-products">
+                      {order.items?.slice(0, 3).map((item) => (
+                        <div key={item.id}>
+                          {item.productImageUrl ? (
+                            <img src={item.productImageUrl} alt={item.productName || 'Product'} />
+                          ) : (
+                            <div className="thumb-fallback">
+                              <Icon name="box" size={18} />
+                            </div>
+                          )}
+                          <span>
+                            <b>{item.productName}</b>
+                            <small>
+                              Quantity {item.quantity} &middot; {formatPrice(item.priceAtPurchase)}
+                            </small>
+                          </span>
+                        </div>
+                      ))}
 
-              {/* Items Summary */}
-              <div style={styles.itemsSummary}>
-                {order.items?.slice(0, 3).map((item) => (
-                  <div key={item.id} style={styles.itemRow}>
-                    <span>{item.productName} (x{item.quantity})</span>
-                    <span>₹{(Number(item.priceAtPurchase) * item.quantity).toFixed(2)}</span>
+                      {order.items?.length > 3 && (
+                        <div style={{ color: 'var(--muted)', fontSize: '11px', paddingLeft: '70px' }}>
+                          + {order.items.length - 3} more item(s)...
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Stepper Progress */}
+                    <div className={`tracker ${isCancelled ? 'tracker-cancelled' : ''}`}>
+                      {[
+                        { key: 'CONFIRMED', label: 'Confirmed', desc: 'Order accepted' },
+                        { key: 'SHIPPED', label: 'Shipped', desc: 'In transit' },
+                        { key: 'DELIVERED', label: 'Delivered', desc: 'Received' },
+                      ].map((step) => {
+                        const isDone = !isCancelled && getTrackerStepClass(step.key, order.status) === 'complete';
+                        return (
+                          <div className={isDone ? 'complete' : ''} key={step.key}>
+                            <span>
+                              {isDone ? <Icon name="check" size={13} /> : null}
+                            </span>
+                            <b>{step.label}</b>
+                            <small>
+                              {isDone ? step.desc : isCancelled ? 'Cancelled' : 'Pending'}
+                            </small>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
-                ))}
-                {order.items?.length > 3 && (
-                  <p style={{ color: '#94a3b8', fontSize: '0.85rem', margin: '0.5rem 0 0 0' }}>
-                    + {order.items.length - 3} more item(s)...
-                  </p>
-                )}
-              </div>
 
-              <div style={styles.cardFooter}>
-                <Link to={`/orders/${order.id}`} style={styles.viewDetailBtn}>
-                  View Full Details &rarr;
-                </Link>
-              </div>
-            </div>
-          ))}
+                  {/* Order Footer */}
+                  <div className="order-foot">
+                    <span>
+                      Payment: <b>Cash on Delivery &middot; {isPaid ? 'Paid' : 'Due on Delivery'}</b>
+                    </span>
+
+                    <div className="order-actions">
+                      <Link
+                        to={`/orders/${order.id}`}
+                        className="btn btn-secondary"
+                        style={{ minHeight: '34px', padding: '0 12px', fontSize: '11px' }}
+                      >
+                        View details <Icon name="arrow" size={14} />
+                      </Link>
+                    </div>
+                  </div>
+                </section>
+              );
+            })}
+          </div>
 
           <Pagination
             currentPage={page}
             totalPages={totalPages}
             onPageChange={(p) => setPage(p)}
           />
-        </div>
-      )}
-    </div>
-  );
-};
 
-const styles = {
-  container: {
-    maxWidth: '1000px',
-    margin: '0 auto',
-    padding: '2rem 1.5rem',
-  },
-  title: {
-    color: '#f8fafc',
-    fontSize: '1.8rem',
-    fontWeight: '800',
-    marginBottom: '2rem',
-  },
-  emptyCard: {
-    textAlign: 'center',
-    padding: '4rem 1.5rem',
-    backgroundColor: '#0f172a',
-    borderRadius: '12px',
-  },
-  shopBtn: {
-    padding: '0.8rem 1.6rem',
-    backgroundColor: '#6366f1',
-    color: '#ffffff',
-    textDecoration: 'none',
-    borderRadius: '8px',
-    fontWeight: '600',
-  },
-  ordersList: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '1.5rem',
-  },
-  orderCard: {
-    backgroundColor: '#0f172a',
-    border: '1px solid #1e293b',
-    borderRadius: '12px',
-    padding: '1.5rem',
-  },
-  orderHeader: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    borderBottom: '1px solid #1e293b',
-    paddingBottom: '1rem',
-    marginBottom: '1rem',
-  },
-  orderLabel: {
-    color: '#64748b',
-    fontSize: '0.75rem',
-    textTransform: 'uppercase',
-    fontWeight: '700',
-  },
-  orderId: {
-    color: '#f8fafc',
-    fontFamily: 'monospace',
-    fontSize: '0.95rem',
-    fontWeight: '600',
-  },
-  orderDate: {
-    color: '#94a3b8',
-    fontSize: '0.85rem',
-  },
-  statusBadge: {
-    display: 'inline-block',
-    padding: '4px 10px',
-    borderRadius: '12px',
-    color: '#ffffff',
-    fontSize: '0.75rem',
-    fontWeight: '700',
-    marginBottom: '0.5rem',
-  },
-  orderTotal: {
-    color: '#f8fafc',
-    fontSize: '1.3rem',
-    fontWeight: '800',
-  },
-  itemsSummary: {
-    backgroundColor: '#1e293b',
-    borderRadius: '8px',
-    padding: '1rem',
-    marginBottom: '1rem',
-  },
-  itemRow: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    color: '#cbd5e1',
-    fontSize: '0.9rem',
-    padding: '0.2rem 0',
-  },
-  cardFooter: {
-    display: 'flex',
-    justifyContent: 'flex-end',
-  },
-  viewDetailBtn: {
-    color: '#818cf8',
-    textDecoration: 'none',
-    fontWeight: '600',
-    fontSize: '0.9rem',
-  },
+          <button
+            className="continue-link"
+            onClick={() => navigate('/')}
+            style={{ marginTop: '28px' }}
+          >
+            <Icon name="arrow" size={17} /> Continue shopping
+          </button>
+        </>
+      )}
+    </main>
+  );
 };
 
 export default OrderHistoryPage;

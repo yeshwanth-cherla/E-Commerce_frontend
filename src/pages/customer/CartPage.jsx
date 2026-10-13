@@ -1,272 +1,203 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useCart } from '../../context/CartContext';
+import { Icon } from '../../components/Icon';
+import { ProductImage } from '../../components/ProductImage';
 import { LoadingSpinner } from '../../components/LoadingSpinner';
 import { AlertMessage } from '../../components/AlertMessage';
 
 export const CartPage = () => {
   const { cart, loading, error, updateQuantity, removeFromCart } = useCart();
   const navigate = useNavigate();
+  const [updatingId, setUpdatingId] = useState(null);
 
-  if (loading) return <LoadingSpinner message="Loading your shopping cart..." />;
+  const formatPrice = (value) => {
+    return '₹' + Number(value || 0).toLocaleString('en-IN', {
+      maximumFractionDigits: 2,
+    });
+  };
+
+  const handleUpdateQty = async (itemId, nextQty) => {
+    if (nextQty < 1) return;
+    try {
+      setUpdatingId(itemId);
+      await updateQuantity(itemId, nextQty);
+    } catch (err) {
+      console.error('Failed to update quantity:', err);
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
+  const handleRemove = async (itemId) => {
+    try {
+      setUpdatingId(itemId);
+      await removeFromCart(itemId);
+    } catch (err) {
+      console.error('Failed to remove cart item:', err);
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
+  if (loading && !cart) {
+    return (
+      <main className="shell page">
+        <LoadingSpinner message="Loading your shopping cart..." />
+      </main>
+    );
+  }
 
   const cartItems = cart?.items || cart?.cartItems || [];
   const getItemPrice = (item) => Number(item.productPrice ?? item.unitPrice ?? 0);
-  const totalPrice = cart?.cartTotal ?? cartItems.reduce(
+  const subtotal = cart?.cartTotal ?? cartItems.reduce(
     (acc, item) => acc + getItemPrice(item) * item.quantity,
     0
   );
 
-  return (
-    <div style={styles.container}>
-      <h1 style={styles.title}>Your Shopping Cart</h1>
-
-      <AlertMessage type="error" message={error} />
-
-      {cartItems.length === 0 ? (
-        <div style={styles.emptyCart}>
-          <div style={{ fontSize: '4rem', marginBottom: '1rem' }}>🛒</div>
-          <h3>Your cart is empty</h3>
-          <p style={{ color: '#94a3b8', marginTop: '0.5rem', marginBottom: '1.5rem' }}>
-            Looks like you haven't added any products to your cart yet.
-          </p>
-          <Link to="/" style={styles.browseBtn}>
-            Browse Products
-          </Link>
+  if (!cartItems.length) {
+    return (
+      <main className="shell page">
+        <div className="empty-state large">
+          <span className="empty-icon">
+            <Icon name="bag" size={30} />
+          </span>
+          <h1>Your cart is waiting</h1>
+          <p>Browse our verified catalog and add something useful to get started.</p>
+          <button className="btn btn-primary" onClick={() => navigate('/')}>
+            Browse products
+          </button>
         </div>
-      ) : (
-        <div style={styles.cartLayout}>
-          {/* Items List */}
-          <div style={styles.itemsList}>
-            {cartItems.map((item) => (
-              <div key={item.id} style={styles.itemCard}>
-                <div style={styles.itemImageWrapper}>
-                  {item.productImageUrl ? (
-                    <img src={item.productImageUrl} alt={item.productName} style={styles.itemImage} />
-                  ) : (
-                    <div style={{ fontSize: '2rem' }}>📦</div>
-                  )}
-                </div>
+      </main>
+    );
+  }
 
-                <div style={styles.itemInfo}>
-                  <Link to={`/products/${item.productId}`} style={styles.itemTitle}>
-                    {item.productName}
-                  </Link>
-                  <span style={styles.unitPrice}>₹{getItemPrice(item).toFixed(2)} each</span>
-                </div>
+  return (
+    <main className="shell page">
+      <div className="page-title">
+        <span className="kicker">Review your selection</span>
+        <h1>Shopping cart</h1>
+        <p>{cartItems.length} {cartItems.length === 1 ? 'item' : 'items'} in your bag</p>
+      </div>
 
-                {/* Quantity Controller */}
-                <div style={styles.qtyController}>
-                  <button
-                    onClick={() => updateQuantity(item.id, Math.max(1, item.quantity - 1))}
-                    disabled={item.quantity <= 1}
-                    style={styles.qtyBtn}
-                  >
-                    -
-                  </button>
-                  <span style={styles.qtyDisplay}>{item.quantity}</span>
-                  <button
-                    onClick={() => updateQuantity(item.id, item.quantity + 1)}
-                    style={styles.qtyBtn}
-                  >
-                    +
-                  </button>
-                </div>
-
-                <div style={styles.lineTotal}>
-                  ₹{(getItemPrice(item) * item.quantity).toFixed(2)}
-                </div>
-
-                <button onClick={() => removeFromCart(item.id)} style={styles.removeBtn} title="Remove item">
-                  🗑️
-                </button>
-              </div>
-            ))}
-          </div>
-
-          {/* Summary Card */}
-          <div style={styles.summaryCard}>
-            <h3 style={styles.summaryTitle}>Order Summary</h3>
-
-            <div style={styles.summaryRow}>
-              <span>Items Subtotal</span>
-              <span>₹{totalPrice.toFixed(2)}</span>
-            </div>
-            <div style={styles.summaryRow}>
-              <span>Estimated Shipping</span>
-              <span style={{ color: '#4ade80' }}>FREE</span>
-            </div>
-
-            <hr style={styles.divider} />
-
-            <div style={{ ...styles.summaryRow, fontSize: '1.2rem', fontWeight: '800', color: '#f8fafc' }}>
-              <span>Total</span>
-              <span>₹{totalPrice.toFixed(2)}</span>
-            </div>
-
-            <button
-              onClick={() => navigate('/checkout')}
-              style={styles.checkoutBtn}
-            >
-              Proceed to Checkout &rarr;
-            </button>
-          </div>
+      {error && (
+        <div style={{ marginBottom: '20px' }}>
+          <AlertMessage type="error" message={error} />
         </div>
       )}
-    </div>
-  );
-};
 
-const styles = {
-  container: {
-    maxWidth: '1100px',
-    margin: '0 auto',
-    padding: '2rem 1.5rem',
-  },
-  title: {
-    color: '#f8fafc',
-    fontSize: '1.8rem',
-    fontWeight: '800',
-    marginBottom: '2rem',
-  },
-  emptyCart: {
-    textAlign: 'center',
-    padding: '4rem 1.5rem',
-    backgroundColor: '#0f172a',
-    border: '1px solid #1e293b',
-    borderRadius: '12px',
-  },
-  browseBtn: {
-    display: 'inline-block',
-    padding: '0.8rem 1.6rem',
-    backgroundColor: '#6366f1',
-    color: '#ffffff',
-    textDecoration: 'none',
-    borderRadius: '8px',
-    fontWeight: '600',
-  },
-  cartLayout: {
-    display: 'grid',
-    gridTemplateColumns: '1fr 340px',
-    gap: '2rem',
-    alignItems: 'start',
-  },
-  itemsList: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '1rem',
-  },
-  itemCard: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '1.2rem',
-    backgroundColor: '#0f172a',
-    border: '1px solid #1e293b',
-    borderRadius: '10px',
-    padding: '1.2rem',
-  },
-  itemImageWrapper: {
-    width: '70px',
-    height: '70px',
-    backgroundColor: '#1e293b',
-    borderRadius: '6px',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  itemImage: {
-    width: '100%',
-    height: '100%',
-    objectFit: 'cover',
-    borderRadius: '6px',
-  },
-  itemInfo: {
-    flex: '1',
-  },
-  itemTitle: {
-    color: '#f8fafc',
-    textDecoration: 'none',
-    fontWeight: '600',
-    fontSize: '1rem',
-    display: 'block',
-    marginBottom: '0.3rem',
-  },
-  unitPrice: {
-    color: '#94a3b8',
-    fontSize: '0.85rem',
-  },
-  qtyController: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '0.5rem',
-    backgroundColor: '#1e293b',
-    borderRadius: '6px',
-    padding: '3px',
-  },
-  qtyBtn: {
-    width: '28px',
-    height: '28px',
-    backgroundColor: '#334155',
-    color: '#f8fafc',
-    border: 'none',
-    borderRadius: '4px',
-    cursor: 'pointer',
-    fontSize: '1rem',
-  },
-  qtyDisplay: {
-    color: '#f8fafc',
-    fontWeight: '600',
-    padding: '0 8px',
-  },
-  lineTotal: {
-    color: '#f8fafc',
-    fontWeight: '700',
-    fontSize: '1.1rem',
-    minWidth: '90px',
-    textAlign: 'right',
-  },
-  removeBtn: {
-    backgroundColor: 'transparent',
-    border: 'none',
-    cursor: 'pointer',
-    fontSize: '1.2rem',
-    padding: '0.4rem',
-  },
-  summaryCard: {
-    backgroundColor: '#0f172a',
-    border: '1px solid #1e293b',
-    borderRadius: '10px',
-    padding: '1.8rem',
-  },
-  summaryTitle: {
-    color: '#f8fafc',
-    fontSize: '1.2rem',
-    fontWeight: '700',
-    marginBottom: '1.2rem',
-  },
-  summaryRow: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    color: '#94a3b8',
-    fontSize: '0.95rem',
-    marginBottom: '0.8rem',
-  },
-  divider: {
-    borderColor: '#1e293b',
-    margin: '1.2rem 0',
-  },
-  checkoutBtn: {
-    width: '100%',
-    padding: '0.85rem',
-    backgroundColor: '#6366f1',
-    color: '#ffffff',
-    border: 'none',
-    borderRadius: '8px',
-    fontSize: '1rem',
-    fontWeight: '700',
-    cursor: 'pointer',
-    marginTop: '1.2rem',
-  },
+      <div className="cart-layout">
+        <section className="cart-items">
+          {cartItems.map((item) => {
+            const price = getItemPrice(item);
+            const lineTotal = price * item.quantity;
+            const isMutating = updatingId === item.id;
+            const maxStock = item.availableStock ?? item.stock;
+
+            return (
+              <article className="cart-item" key={item.id}>
+                <ProductImage
+                  src={item.productImageUrl}
+                  alt={item.productName || 'Product'}
+                  className="cart-item-image"
+                />
+
+                <div className="cart-item-main">
+                  {item.category && <span className="eyebrow">{item.category}</span>}
+                  <h3>
+                    <Link to={`/products/${item.productId}`}>
+                      {item.productName}
+                    </Link>
+                  </h3>
+
+                  <div style={{ fontSize: '13px', color: 'var(--muted)', marginTop: '2px' }}>
+                    {formatPrice(price)} each
+                  </div>
+
+                  {maxStock !== undefined && maxStock <= 5 && maxStock > 0 && (
+                    <div style={{ color: 'var(--warning)', fontSize: '11px', fontWeight: 600, marginTop: '4px' }}>
+                      Only {maxStock} left in stock
+                    </div>
+                  )}
+
+                  <button
+                    className="remove-link"
+                    onClick={() => handleRemove(item.id)}
+                    disabled={isMutating}
+                    aria-label={`Remove ${item.productName} from cart`}
+                  >
+                    <Icon name="trash" size={15} />
+                    {isMutating ? 'Updating...' : 'Remove'}
+                  </button>
+                </div>
+
+                <div className="cart-item-end">
+                  <strong>{formatPrice(lineTotal)}</strong>
+
+                  <div className="quantity">
+                    <button
+                      onClick={() => handleUpdateQty(item.id, item.quantity - 1)}
+                      disabled={isMutating || item.quantity <= 1}
+                      aria-label="Decrease quantity"
+                    >
+                      <Icon name="minus" size={16} />
+                    </button>
+                    <span>{item.quantity}</span>
+                    <button
+                      onClick={() => handleUpdateQty(item.id, item.quantity + 1)}
+                      disabled={isMutating || (maxStock !== undefined && item.quantity >= maxStock)}
+                      aria-label="Increase quantity"
+                    >
+                      <Icon name="plus" size={16} />
+                    </button>
+                  </div>
+                </div>
+              </article>
+            );
+          })}
+
+          <button className="continue-link" onClick={() => navigate('/')}>
+            <Icon name="arrow" size={17} /> Continue shopping
+          </button>
+        </section>
+
+        <aside className="summary-card">
+          <h2>Order summary</h2>
+
+          <div className="summary-line">
+            <span>Items subtotal</span>
+            <b>{formatPrice(subtotal)}</b>
+          </div>
+
+          <div className="summary-line" style={{ marginTop: '12px' }}>
+            <span>Standard shipping</span>
+            <span style={{ color: 'var(--success)', fontWeight: 700 }}>FREE</span>
+          </div>
+
+          <div className="summary-note">
+            Final payable amount will be confirmed at checkout. Cash on Delivery is the supported payment method.
+          </div>
+
+          <div className="summary-total">
+            <span>Total</span>
+            <strong>{formatPrice(subtotal)}</strong>
+          </div>
+
+          <button
+            className="btn btn-primary full"
+            onClick={() => navigate('/checkout')}
+            disabled={loading || cartItems.length === 0}
+          >
+            Proceed to checkout <Icon name="arrow" size={18} />
+          </button>
+
+          <p className="secure-note">
+            <Icon name="check" size={15} /> Stock and prices are verified before placing your order.
+          </p>
+        </aside>
+      </div>
+    </main>
+  );
 };
 
 export default CartPage;

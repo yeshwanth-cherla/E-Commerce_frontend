@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import { CartProvider } from './context/CartContext';
 
@@ -32,32 +32,47 @@ import AdminUsersPage from './pages/admin/AdminUsersPage';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Customer shell — wraps every non-admin route with the shared Navbar/Footer
+// Scopes Aster canvas styling to migrated customer pages (home and product details),
+// safeguarding unmigrated pages (login, register, checkout, orders, admin).
 // ─────────────────────────────────────────────────────────────────────────────
-const CustomerShell = ({ children }) => (
-  <div
-    style={{
-      display: 'flex',
-      flexDirection: 'column',
-      minHeight: '100vh',
-      backgroundColor: '#020617',
-      color: '#f8fafc',
-    }}
-  >
-    <Navbar />
-    <main
+const CustomerShell = ({ children }) => {
+  const location = useLocation();
+  const isAsterTheme =
+    location.pathname === '/' ||
+    location.pathname.startsWith('/products/') ||
+    location.pathname === '/cart' ||
+    location.pathname === '/checkout' ||
+    location.pathname.startsWith('/orders') ||
+    location.pathname === '/addresses' ||
+    location.pathname === '/login' ||
+    location.pathname === '/register';
+
+  return (
+    <div
       style={{
-        flexGrow: 1,
-        maxWidth: '1280px',
-        width: '100%',
-        margin: '0 auto',
-        padding: '2rem 1.25rem',
+        display: 'flex',
+        flexDirection: 'column',
+        minHeight: '100vh',
+        backgroundColor: isAsterTheme ? 'var(--canvas, #f7f8fb)' : '#020617',
+        color: isAsterTheme ? 'var(--ink, #172033)' : '#f8fafc',
       }}
     >
-      {children}
-    </main>
-    <Footer />
-  </div>
-);
+      <Navbar />
+      <main
+        style={{
+          flexGrow: 1,
+          width: '100%',
+          margin: '0 auto',
+          maxWidth: isAsterTheme ? '100%' : '1280px',
+          padding: isAsterTheme ? '0' : '2rem 1.25rem',
+        }}
+      >
+        {children}
+      </main>
+      <Footer />
+    </div>
+  );
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // App

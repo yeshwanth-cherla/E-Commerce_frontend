@@ -1,8 +1,9 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { apiClient } from '../../services/apiClient';
 import { LoadingSpinner } from '../../components/LoadingSpinner';
-import { Pagination } from '../../components/Pagination';
 import { AlertMessage } from '../../components/AlertMessage';
+import { ProductImage } from '../../components/ProductImage';
+import { Icon } from '../../components/Icon';
 import { useProductRealtime } from '../../hooks/useProductRealtime';
 import { filterApprovedCategories } from '../../constants/categories';
 
@@ -39,9 +40,6 @@ export const AdminProductsPage = () => {
   const [savingProduct, setSavingProduct] = useState(false);
   const [modalError, setModalError] = useState(null);
 
-  // Category Explorer View State
-  const [categoryExplorerExpanded, setCategoryExplorerExpanded] = useState(true);
-
   // Deactivation / Activation Confirmation Modal State
   const [confirmModal, setConfirmModal] = useState({
     isOpen: false,
@@ -74,7 +72,6 @@ export const AdminProductsPage = () => {
       ]);
 
       const fetchedProducts = prodRes.data.content || [];
-      // Client-side filter for DISABLED status if requested
       const displayedProducts =
         statusFilter === 'DISABLED'
           ? fetchedProducts.filter((p) => !p.enabled)
@@ -96,7 +93,7 @@ export const AdminProductsPage = () => {
     loadData();
   }, [loadData]);
 
-  // Stage 2 Real-Time synchronization: updates list on remote change
+  // Supabase Real-Time synchronization
   useProductRealtime({
     onUpdate: (newRecord) => {
       setProducts((prev) =>
@@ -107,7 +104,9 @@ export const AdminProductsPage = () => {
               name: newRecord.name ?? p.name,
               price: newRecord.price != null ? Number(newRecord.price) : p.price,
               stockQuantity:
-                newRecord.stock_quantity != null ? Number(newRecord.stock_quantity) : p.stockQuantity,
+                newRecord.stock_quantity != null
+                  ? Number(newRecord.stock_quantity)
+                  : p.stockQuantity,
               description: newRecord.description ?? p.description,
               imageUrl: newRecord.image_url ?? p.imageUrl,
               enabled: newRecord.enabled ?? p.enabled,
@@ -121,6 +120,12 @@ export const AdminProductsPage = () => {
     onInsert: () => loadData(),
     onDelete: () => loadData(),
   });
+
+  const categoriesMap = useMemo(() => {
+    const map = new Map();
+    categories.forEach((cat) => map.set(cat.id, cat));
+    return map;
+  }, [categories]);
 
   // Search Submit & Clear Handlers
   const handleSearchSubmit = (e) => {
@@ -136,12 +141,6 @@ export const AdminProductsPage = () => {
     setStatusFilter('ALL');
     setPage(0);
   };
-
-  const categoriesMap = useMemo(() => {
-    const map = new Map();
-    categories.forEach((cat) => map.set(cat.id, cat));
-    return map;
-  }, [categories]);
 
   // Open Create Product Modal
   const openCreateProduct = () => {
@@ -188,7 +187,7 @@ export const AdminProductsPage = () => {
 
     const priceNum = Number(productForm.price);
     if (!productForm.price || isNaN(priceNum) || priceNum <= 0) {
-      errors.price = 'Price must be a positive number greater than 0 (e.g. 19.99)';
+      errors.price = 'Price must be a positive number greater than 0';
     }
 
     const stockNum = Number(productForm.stockQuantity);
@@ -234,14 +233,13 @@ export const AdminProductsPage = () => {
       if (editingProductId) {
         const res = await apiClient.put(`/api/products/${editingProductId}`, payload);
         const savedProduct = res.data;
-        // Immediately sync local state with backend confirmed entity
         setProducts((prev) =>
           prev.map((p) => (p.id === editingProductId ? savedProduct : p))
         );
-        setToastMessage(`Product "${payload.name}" updated successfully!`);
+        setToastMessage(`Product "${payload.name}" updated successfully.`);
       } else {
         await apiClient.post('/api/products', payload);
-        setToastMessage(`Product "${payload.name}" created successfully!`);
+        setToastMessage(`Product "${payload.name}" created successfully.`);
       }
 
       setShowProductModal(false);
@@ -276,11 +274,9 @@ export const AdminProductsPage = () => {
 
     try {
       if (action === 'disable') {
-        // Soft-delete via supported Spring Boot DELETE endpoint
         await apiClient.delete(`/api/products/${product.id}`);
-        setToastMessage(`Product "${product.name}" deactivated. It is now hidden from the storefront.`);
+        setToastMessage(`Product "${product.name}" deactivated and hidden from storefront.`);
       } else {
-        // Re-enable product via supported Spring Boot PUT endpoint
         await apiClient.put(`/api/products/${product.id}`, {
           name: product.name,
           description: product.description,
@@ -290,7 +286,7 @@ export const AdminProductsPage = () => {
           categoryId: product.category?.id,
           enabled: true,
         });
-        setToastMessage(`Product "${product.name}" re-enabled! It is now active in the customer catalog.`);
+        setToastMessage(`Product "${product.name}" re-enabled in customer catalog.`);
       }
 
       setConfirmModal({ isOpen: false, product: null, action: 'disable', loading: false });
@@ -303,479 +299,452 @@ export const AdminProductsPage = () => {
     }
   };
 
-  // Active filter label
   const activeCategoryObject = selectedCategoryId ? categoriesMap.get(Number(selectedCategoryId)) : null;
 
   return (
-    <div style={styles.container}>
-      {/* Page Header */}
-      <div style={styles.header}>
+    <div className="admin-content">
+      {/* ── Page Header / Intro ── */}
+      <div className="admin-intro">
         <div>
-          <h1 style={styles.title}>Product Catalog & Inventory</h1>
-          <p style={styles.subtitle}>
-            Manage products, pricing, stock visibility, and department taxonomies.
-          </p>
+          <h2>Products & Categories</h2>
+          <p>Review and manage catalog items, pricing, inventory visibility, and taxonomies.</p>
         </div>
-        <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
-          <button id="admin-btn-add-product" onClick={openCreateProduct} style={styles.primaryBtn}>
-            + Add New Product
-          </button>
-        </div>
+        <button
+          type="button"
+          id="admin-btn-add-product"
+          className="btn btn-primary"
+          onClick={openCreateProduct}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+        >
+          <Icon name="plus" size={16} />
+          <span>Add product</span>
+        </button>
       </div>
 
-      {/* Toast & Error Alerts */}
+      {/* Toast Feedback */}
       {toastMessage && (
-        <AlertMessage type="success" message={toastMessage} onClose={() => setToastMessage('')} />
+        <div style={{ marginBottom: '16px' }}>
+          <AlertMessage type="success" message={toastMessage} onClose={() => setToastMessage('')} />
+        </div>
       )}
-      {error && <AlertMessage type="error" message={error} onClose={() => setError(null)} />}
+      {error && (
+        <div style={{ marginBottom: '16px' }}>
+          <AlertMessage type="error" message={error} onClose={() => setError(null)} />
+        </div>
+      )}
 
-      {/* Category Explorer Card (6 Approved Main Departments Only) */}
-      <div style={styles.categoryCard}>
-        <div style={styles.categoryCardHeader}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-            <span style={{ fontSize: '1.1rem' }}>📁</span>
-            <strong style={{ color: '#f8fafc', fontSize: '0.95rem' }}>
-              Approved Catalog Categories (6 Main Departments)
-            </strong>
-          </div>
+      {/* ── Main Panel ── */}
+      <section className="panel">
+        {/* Approved Categories Quick-Filter Bar */}
+        <div className="admin-categories-bar" role="navigation" aria-label="Department filters">
           <button
-            onClick={() => setCategoryExplorerExpanded((prev) => !prev)}
-            style={styles.textLinkBtn}
+            type="button"
+            className={`admin-category-pill ${!selectedCategoryId ? 'active' : ''}`}
+            onClick={() => {
+              setSelectedCategoryId('');
+              setPage(0);
+            }}
           >
-            {categoryExplorerExpanded ? 'Collapse' : 'Expand'}
+            All Departments ({categories.length})
           </button>
+          {categories.map((cat) => {
+            const isSelected = selectedCategoryId === cat.id.toString();
+            return (
+              <button
+                key={cat.id}
+                type="button"
+                className={`admin-category-pill ${isSelected ? 'active' : ''}`}
+                onClick={() => {
+                  setSelectedCategoryId(isSelected ? '' : cat.id.toString());
+                  setPage(0);
+                }}
+              >
+                {cat.name}
+              </button>
+            );
+          })}
         </div>
 
-        {categoryExplorerExpanded && (
-          <div style={styles.categoryGrid}>
-            {categories.map((cat) => {
-              const isSelected = selectedCategoryId === cat.id.toString();
-
-              return (
-                <div
-                  key={cat.id}
-                  style={{
-                    ...styles.mainCatBox,
-                    borderColor: isSelected ? '#6366f1' : '#334155',
-                    backgroundColor: isSelected ? 'rgba(99, 102, 241, 0.12)' : '#1e293b',
+        {/* Filter Controls Bar */}
+        <div className="filters">
+          <form onSubmit={handleSearchSubmit} style={{ display: 'flex', gap: '8px', flex: '1', minWidth: '220px', maxWidth: '380px' }}>
+            <label className="admin-search" style={{ width: '100%', maxWidth: 'none' }}>
+              <Icon name="search" size={16} />
+              <input
+                id="admin-product-search-input"
+                type="text"
+                placeholder="Search products by title..."
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+              />
+              {searchInput && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchInput('');
+                    setActiveSearch('');
+                    setPage(0);
                   }}
+                  style={{ border: 0, background: 'none', color: 'var(--muted)', cursor: 'pointer', padding: 0 }}
+                  aria-label="Clear search"
                 >
-                  <div style={styles.mainCatTitleRow}>
-                    <button
-                      onClick={() => {
-                        setSelectedCategoryId(isSelected ? '' : cat.id.toString());
-                        setPage(0);
-                      }}
-                      style={{
-                        ...styles.catFilterLink,
-                        color: isSelected ? '#a5b4fc' : '#f8fafc',
-                        fontWeight: '700',
-                      }}
-                      title="Filter products in this department"
-                    >
-                      {cat.name}
-                    </button>
-                    <span style={{ ...styles.badgeCount, backgroundColor: isSelected ? '#4f46e5' : '#334155' }}>
-                      {isSelected ? 'Active Filter' : 'Department'}
-                    </span>
-                  </div>
-                  <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
-                    {cat.description || 'Primary catalog category'}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* Search, Filter Bar, and Status Toggle */}
-      <div style={styles.filterCard}>
-        <form onSubmit={handleSearchSubmit} style={styles.searchForm}>
-          <div style={styles.searchInputWrap}>
-            <span style={{ color: '#64748b', marginLeft: '0.6rem' }}>🔍</span>
-            <input
-              id="admin-product-search-input"
-              type="text"
-              placeholder="Search products by title or description..."
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-              style={styles.filterSearchInput}
-            />
-            {searchInput && (
-              <button
-                type="button"
-                onClick={() => {
-                  setSearchInput('');
-                  setActiveSearch('');
-                  setPage(0);
-                }}
-                style={styles.clearSearchBtn}
-                title="Clear search text"
-              >
-                ✕
-              </button>
-            )}
-          </div>
-          <button id="admin-product-search-btn" type="submit" style={styles.searchSubmitBtn}>
-            Search
-          </button>
-        </form>
-
-        <div style={styles.filterControlsRow}>
-          {/* Category Dropdown Filter */}
-          <div style={styles.filterControlGroup}>
-            <label style={styles.filterLabel}>Category:</label>
-            <select
-              id="admin-filter-category-select"
-              value={selectedCategoryId}
-              onChange={(e) => {
-                setSelectedCategoryId(e.target.value);
-                setPage(0);
-              }}
-              style={styles.filterSelect}
-            >
-              <option value="">All Categories ({categories.length})</option>
-              {categories.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Status Filter Buttons */}
-          <div style={styles.filterControlGroup}>
-            <label style={styles.filterLabel}>Status:</label>
-            <div style={styles.statusToggleGroup}>
-              <button
-                type="button"
-                onClick={() => {
-                  setStatusFilter('ALL');
-                  setPage(0);
-                }}
-                style={{
-                  ...styles.statusToggleBtn,
-                  backgroundColor: statusFilter === 'ALL' ? '#6366f1' : '#1e293b',
-                  color: statusFilter === 'ALL' ? '#ffffff' : '#94a3b8',
-                }}
-              >
-                All
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setStatusFilter('ACTIVE');
-                  setPage(0);
-                }}
-                style={{
-                  ...styles.statusToggleBtn,
-                  backgroundColor: statusFilter === 'ACTIVE' ? '#22c55e' : '#1e293b',
-                  color: statusFilter === 'ACTIVE' ? '#ffffff' : '#94a3b8',
-                }}
-              >
-                Active
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setStatusFilter('DISABLED');
-                  setPage(0);
-                }}
-                style={{
-                  ...styles.statusToggleBtn,
-                  backgroundColor: statusFilter === 'DISABLED' ? '#ef4444' : '#1e293b',
-                  color: statusFilter === 'DISABLED' ? '#ffffff' : '#94a3b8',
-                }}
-              >
-                Disabled
-              </button>
-            </div>
-          </div>
-
-          {/* Active Filter Clear Button */}
-          {(activeSearch || selectedCategoryId || statusFilter !== 'ALL') && (
-            <button onClick={handleClearFilters} style={styles.resetFiltersBtn}>
-              Reset Filters
+                  <Icon name="close" size={14} />
+                </button>
+              )}
+            </label>
+            <button type="submit" className="btn btn-secondary" style={{ padding: '0 12px', fontSize: '12px' }}>
+              Search
             </button>
-          )}
+          </form>
+
+          {/* Category Select Dropdown */}
+          <select
+            id="admin-filter-category-select"
+            aria-label="Filter by category"
+            value={selectedCategoryId}
+            onChange={(e) => {
+              setSelectedCategoryId(e.target.value);
+              setPage(0);
+            }}
+          >
+            <option value="">All Categories</option>
+            {categories.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+
+          {/* Status Select Dropdown */}
+          <select
+            aria-label="Filter by status"
+            value={statusFilter}
+            onChange={(e) => {
+              setStatusFilter(e.target.value);
+              setPage(0);
+            }}
+          >
+            <option value="ALL">All statuses</option>
+            <option value="ACTIVE">Active only</option>
+            <option value="DISABLED">Disabled only</option>
+          </select>
+
+          {/* Result Count Indicator */}
+          <span className="result-count">
+            {totalElements} {totalElements === 1 ? 'product' : 'products'} found
+          </span>
         </div>
 
-        {/* Active Filters Summary */}
+        {/* Active Filter Chips */}
         {(activeSearch || activeCategoryObject || statusFilter !== 'ALL') && (
-          <div style={styles.activeFiltersRow}>
-            <span style={{ fontSize: '0.8rem', color: '#94a3b8', fontWeight: '600' }}>
-              Active Filters:
-            </span>
+          <div className="active-filters-bar">
+            <span style={{ color: 'var(--muted)', fontWeight: 600, fontSize: '11px' }}>Active filters:</span>
             {activeSearch && (
-              <span style={styles.activeFilterPill}>
+              <span className="active-filter-chip">
                 Search: &ldquo;{activeSearch}&rdquo;
                 <button
+                  type="button"
                   onClick={() => {
                     setActiveSearch('');
                     setSearchInput('');
                     setPage(0);
                   }}
-                  style={styles.pillClose}
+                  aria-label="Remove search filter"
                 >
                   ✕
                 </button>
               </span>
             )}
             {activeCategoryObject && (
-              <span style={styles.activeFilterPill}>
+              <span className="active-filter-chip">
                 Category: {activeCategoryObject.name}
                 <button
+                  type="button"
                   onClick={() => {
                     setSelectedCategoryId('');
                     setPage(0);
                   }}
-                  style={styles.pillClose}
+                  aria-label="Remove category filter"
                 >
                   ✕
                 </button>
               </span>
             )}
             {statusFilter !== 'ALL' && (
-              <span style={styles.activeFilterPill}>
-                Status: {statusFilter === 'ACTIVE' ? 'Active only' : 'Disabled only'}
+              <span className="active-filter-chip">
+                Status: {statusFilter === 'ACTIVE' ? 'Active' : 'Disabled'}
                 <button
+                  type="button"
                   onClick={() => {
                     setStatusFilter('ALL');
                     setPage(0);
                   }}
-                  style={styles.pillClose}
+                  aria-label="Remove status filter"
                 >
                   ✕
                 </button>
               </span>
             )}
+            <button
+              type="button"
+              onClick={handleClearFilters}
+              className="btn btn-ghost"
+              style={{ fontSize: '11px', padding: '2px 8px', marginLeft: 'auto' }}
+            >
+              Reset all filters
+            </button>
           </div>
         )}
-      </div>
 
-      {/* Catalog Table */}
-      <div style={styles.tableCard}>
-        <div style={styles.tableStatsBar}>
-          <span style={{ color: '#94a3b8', fontSize: '0.85rem' }}>
-            Showing <strong>{products.length}</strong> product{products.length === 1 ? '' : 's'} on page{' '}
-            <strong>{page + 1}</strong> of <strong>{Math.max(totalPages, 1)}</strong> ({totalElements} total in catalog)
-          </span>
-        </div>
-
+        {/* Product Table */}
         {loading ? (
-          <LoadingSpinner message="Loading catalog products..." />
+          <div style={{ padding: '48px 0' }}>
+            <LoadingSpinner message="Loading catalog products..." />
+          </div>
         ) : products.length === 0 ? (
-          <div style={styles.emptyState}>
-            <div style={{ fontSize: '2.5rem', marginBottom: '0.5rem' }}>📦</div>
-            <h3 style={{ color: '#f8fafc', marginBottom: '0.3rem' }}>No products match your criteria</h3>
-            <p style={{ color: '#94a3b8', fontSize: '0.9rem' }}>
-              Try adjusting your search terms, changing the category filter, or adding a new product.
+          <div style={{ padding: '60px 20px', textAlign: 'center', color: 'var(--muted)' }}>
+            <Icon name="box" size={36} style={{ color: 'var(--subtle)', marginBottom: '8px' }} />
+            <h3 style={{ margin: '8px 0 4px', color: 'var(--ink)' }}>No products found</h3>
+            <p style={{ margin: 0, fontSize: '12px' }}>
+              No items match your active filters. Try adjusting your search or clearing filters.
             </p>
-            <button onClick={handleClearFilters} style={{ ...styles.secBtn, marginTop: '1rem' }}>
-              Clear All Filters
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={handleClearFilters}
+              style={{ marginTop: '16px', fontSize: '12px' }}
+            >
+              Clear filters
             </button>
           </div>
         ) : (
-          <table style={styles.table}>
-            <thead>
-              <tr>
-                <th style={styles.th}>Product</th>
-                <th style={styles.th}>Category</th>
-                <th style={styles.th}>Price</th>
-                <th style={styles.th}>Stock</th>
-                <th style={styles.th}>Status</th>
-                <th style={styles.th}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {products.map((prod) => (
-                <tr key={prod.id} style={styles.tr}>
-                  <td style={styles.td}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem' }}>
-                      {prod.imageUrl ? (
-                        <img
-                          src={prod.imageUrl}
-                          alt={prod.name}
-                          style={styles.thumbnail}
-                          onError={(e) => {
-                            e.currentTarget.style.display = 'none';
-                          }}
-                        />
-                      ) : (
-                        <div style={styles.noThumbnail}>📦</div>
-                      )}
-                      <div>
-                        <strong style={{ color: '#f8fafc', display: 'block', fontSize: '0.92rem' }}>
-                          {prod.name}
-                        </strong>
-                        {prod.description && (
-                          <span
-                            style={{
-                              color: '#94a3b8',
-                              fontSize: '0.78rem',
-                              display: 'inline-block',
-                              maxWidth: '280px',
-                              whiteSpace: 'nowrap',
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                            }}
-                            title={prod.description}
-                          >
-                            {prod.description}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </td>
-                  <td style={styles.td}>
-                    {prod.category ? (
-                      <span style={styles.categoryBadge}>
-                        {prod.category.name}
-                      </span>
-                    ) : (
-                      <span style={{ color: '#64748b', fontSize: '0.8rem' }}>Uncategorized</span>
-                    )}
-                  </td>
-                  <td style={styles.td}>
-                    <strong style={{ color: '#38bdf8' }}>₹{Number(prod.price).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
-                  </td>
-                  <td style={styles.td}>
-                    <span
-                      style={{
-                        ...styles.stockBadge,
-                        backgroundColor:
-                          prod.stockQuantity <= 0
-                            ? 'rgba(239, 68, 68, 0.2)'
-                            : prod.stockQuantity <= 10
-                            ? 'rgba(245, 158, 11, 0.2)'
-                            : 'rgba(34, 197, 94, 0.15)',
-                        color:
-                          prod.stockQuantity <= 0
-                            ? '#f87171'
-                            : prod.stockQuantity <= 10
-                            ? '#fbbf24'
-                            : '#4ade80',
-                      }}
-                    >
-                      {prod.stockQuantity <= 0
-                        ? 'Out of Stock (0)'
-                        : prod.stockQuantity <= 10
-                        ? `Low Stock (${prod.stockQuantity})`
-                        : `In Stock (${prod.stockQuantity})`}
-                    </span>
-                  </td>
-                  <td style={styles.td}>
-                    <span
-                      style={{
-                        ...styles.statusBadge,
-                        backgroundColor: prod.enabled
-                          ? 'rgba(34, 197, 94, 0.2)'
-                          : 'rgba(239, 68, 68, 0.2)',
-                        color: prod.enabled ? '#4ade80' : '#f87171',
-                      }}
-                    >
-                      {prod.enabled ? 'Active' : 'Disabled'}
-                    </span>
-                  </td>
-                  <td style={styles.td}>
-                    <div style={{ display: 'flex', gap: '0.6rem' }}>
-                      <button
-                        onClick={() => openEditProduct(prod)}
-                        style={styles.actionEditBtn}
-                        title="Edit product name, price, category, stock"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => handlePromptToggleEnabled(prod)}
-                        style={{
-                          ...styles.actionToggleBtn,
-                          color: prod.enabled ? '#f87171' : '#4ade80',
-                        }}
-                        title={
-                          prod.enabled
-                            ? 'Deactivate product from storefront'
-                            : 'Re-enable product in storefront'
-                        }
-                      >
-                        {prod.enabled ? 'Deactivate' : 'Enable'}
-                      </button>
-                    </div>
-                  </td>
+          <div className="table-scroll">
+            <table className="admin-table">
+              <thead>
+                <tr>
+                  <th>Product</th>
+                  <th>Category</th>
+                  <th>Price</th>
+                  <th>Stock</th>
+                  <th>Status</th>
+                  <th aria-label="Actions" style={{ textAlign: 'right', paddingRight: '20px' }}>Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {products.map((prod) => {
+                  const isOutOfStock = prod.stockQuantity <= 0;
+                  const isLowStock = !isOutOfStock && prod.stockQuantity <= 10;
+
+                  return (
+                    <tr key={prod.id}>
+                      <td>
+                        <div className="table-product">
+                          <ProductImage
+                            src={prod.imageUrl}
+                            alt={prod.name}
+                            style={{ width: '36px', height: '36px', borderRadius: '5px', objectFit: 'cover' }}
+                          />
+                          <div style={{ display: 'flex', flexDirection: 'column' }}>
+                            <strong style={{ color: 'var(--ink)', fontSize: '13px' }}>
+                              {prod.name}
+                            </strong>
+                            {prod.description && (
+                              <small
+                                style={{
+                                  color: 'var(--muted)',
+                                  fontSize: '11px',
+                                  maxWidth: '260px',
+                                  whiteSpace: 'nowrap',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                }}
+                                title={prod.description}
+                              >
+                                {prod.description}
+                              </small>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+                      <td>
+                        <span style={{ color: '#4e5668', fontWeight: 500 }}>
+                          {prod.category?.name || 'Uncategorized'}
+                        </span>
+                      </td>
+                      <td>
+                        <b style={{ color: 'var(--ink)' }}>
+                          ₹{Number(prod.price || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </b>
+                      </td>
+                      <td>
+                        <span
+                          className={`status-pill ${
+                            isOutOfStock
+                              ? 'status-red'
+                              : isLowStock
+                              ? 'status-amber'
+                              : 'status-green'
+                          }`}
+                        >
+                          {isOutOfStock
+                            ? 'Out of stock'
+                            : isLowStock
+                            ? `Low stock (${prod.stockQuantity})`
+                            : `${prod.stockQuantity} in stock`}
+                        </span>
+                      </td>
+                      <td>
+                        <span
+                          className={`status-pill ${
+                            prod.enabled ? 'status-green' : 'status-red'
+                          }`}
+                        >
+                          {prod.enabled ? 'Active' : 'Disabled'}
+                        </span>
+                      </td>
+                      <td style={{ textAlign: 'right', paddingRight: '20px' }}>
+                        <div style={{ display: 'inline-flex', gap: '6px' }}>
+                          <button
+                            type="button"
+                            className="table-action"
+                            onClick={() => openEditProduct(prod)}
+                            title="Edit product details"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            className="table-action"
+                            onClick={() => handlePromptToggleEnabled(prod)}
+                            style={{
+                              color: prod.enabled ? 'var(--danger)' : 'var(--success)',
+                            }}
+                            title={prod.enabled ? 'Deactivate from storefront' : 'Re-enable in catalog'}
+                          >
+                            {prod.enabled ? 'Deactivate' : 'Enable'}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
 
-        <Pagination currentPage={page} totalPages={totalPages} onPageChange={(p) => setPage(p)} />
-      </div>
-
-      {/* Product Create / Edit Modal */}
-      {showProductModal && (
-        <div style={styles.modalOverlay}>
-          <div style={styles.modalContent}>
-            <div style={styles.modalHeader}>
-              <h3 style={styles.modalTitle}>
-                {editingProductId ? 'Edit Product Details' : 'Add New Product to Catalog'}
-              </h3>
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="pagination">
+            <span>
+              Showing {page * 10 + 1}–{Math.min((page + 1) * 10, totalElements)} of {totalElements} products
+            </span>
+            <div>
               <button
                 type="button"
-                onClick={() => setShowProductModal(false)}
-                style={styles.modalCloseBtn}
+                disabled={page === 0}
+                onClick={() => setPage((p) => Math.max(0, p - 1))}
               >
-                ✕
+                Previous
+              </button>
+              {Array.from({ length: totalPages }, (_, i) => i)
+                .filter((i) => i === 0 || i === totalPages - 1 || Math.abs(i - page) <= 1)
+                .map((i, idx, arr) => (
+                  <React.Fragment key={i}>
+                    {idx > 0 && arr[idx - 1] !== i - 1 && (
+                      <span style={{ padding: '0 4px', color: 'var(--muted)' }}>…</span>
+                    )}
+                    <button
+                      type="button"
+                      className={i === page ? 'active' : ''}
+                      onClick={() => setPage(i)}
+                    >
+                      {i + 1}
+                    </button>
+                  </React.Fragment>
+                ))}
+              <button
+                type="button"
+                disabled={page >= totalPages - 1}
+                onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
+      </section>
+
+      {/* ── Add / Edit Product Modal ── */}
+      {showProductModal && (
+        <div className="modal-backdrop" onClick={() => !savingProduct && setShowProductModal(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <div>
+                <h2>{editingProductId ? 'Edit product' : 'Add product'}</h2>
+                <p>
+                  {editingProductId
+                    ? 'Update catalog pricing, inventory count, or product details.'
+                    : 'Create a catalog item using the existing backend product API.'}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="modal-close"
+                onClick={() => setShowProductModal(false)}
+                disabled={savingProduct}
+                aria-label="Close dialog"
+              >
+                <Icon name="close" size={16} />
               </button>
             </div>
 
-            {modalError && (
-              <div style={{ marginBottom: '1rem' }}>
-                <AlertMessage type="error" message={modalError} onClose={() => setModalError(null)} />
-              </div>
-            )}
-
-            <form onSubmit={handleSaveProduct} style={styles.form}>
-              <div style={styles.field}>
-                <label style={styles.label}>
-                  Product Name <span style={{ color: '#ef4444' }}>*</span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={productForm.name}
-                  onChange={(e) =>
-                    setProductForm((prev) => ({ ...prev, name: e.target.value }))
-                  }
-                  placeholder="e.g. Wireless Noise-Cancelling Headphones"
-                  style={{
-                    ...styles.input,
-                    borderColor: productFormErrors.name ? '#ef4444' : '#334155',
-                  }}
-                />
-                {productFormErrors.name && (
-                  <span style={styles.fieldErrorText}>{productFormErrors.name}</span>
+            <form onSubmit={handleSaveProduct}>
+              <div className="modal-body form-grid">
+                {modalError && (
+                  <div className="inline-error span-2">
+                    <b>Failed to save product</b>
+                    <span>{modalError}</span>
+                  </div>
                 )}
-              </div>
 
-              <div style={styles.field}>
-                <label style={styles.label}>Description</label>
-                <textarea
-                  rows={3}
-                  value={productForm.description}
-                  onChange={(e) =>
-                    setProductForm((prev) => ({ ...prev, description: e.target.value }))
-                  }
-                  placeholder="Detailed specifications, features, warranty..."
-                  style={styles.input}
-                />
-              </div>
+                {/* Product Name */}
+                <label className={`span-2 ${productFormErrors.name ? 'field-error' : ''}`}>
+                  <span>Product name *</span>
+                  <input
+                    type="text"
+                    required
+                    value={productForm.name}
+                    onChange={(e) =>
+                      setProductForm((prev) => ({ ...prev, name: e.target.value }))
+                    }
+                    placeholder="Enter product title"
+                  />
+                  {productFormErrors.name && <small>{productFormErrors.name}</small>}
+                </label>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                <div style={styles.field}>
-                  <label style={styles.label}>
-                    Price (₹) <span style={{ color: '#ef4444' }}>*</span>
-                  </label>
+                {/* Category Selection */}
+                <label className={productFormErrors.categoryId ? 'field-error' : ''}>
+                  <span>Category *</span>
+                  <select
+                    value={productForm.categoryId}
+                    onChange={(e) =>
+                      setProductForm((prev) => ({ ...prev, categoryId: e.target.value }))
+                    }
+                  >
+                    <option value="" disabled>Select category</option>
+                    {categories.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                  {productFormErrors.categoryId && <small>{productFormErrors.categoryId}</small>}
+                </label>
+
+                {/* Price */}
+                <label className={productFormErrors.price ? 'field-error' : ''}>
+                  <span>Price (₹) *</span>
                   <input
                     type="number"
                     step="0.01"
@@ -785,21 +754,14 @@ export const AdminProductsPage = () => {
                     onChange={(e) =>
                       setProductForm((prev) => ({ ...prev, price: e.target.value }))
                     }
-                    placeholder="499.00"
-                    style={{
-                      ...styles.input,
-                      borderColor: productFormErrors.price ? '#ef4444' : '#334155',
-                    }}
+                    placeholder="0.00"
                   />
-                  {productFormErrors.price && (
-                    <span style={styles.fieldErrorText}>{productFormErrors.price}</span>
-                  )}
-                </div>
+                  {productFormErrors.price && <small>{productFormErrors.price}</small>}
+                </label>
 
-                <div style={styles.field}>
-                  <label style={styles.label}>
-                    Stock Quantity <span style={{ color: '#ef4444' }}>*</span>
-                  </label>
+                {/* Stock Quantity */}
+                <label className={productFormErrors.stockQuantity ? 'field-error' : ''}>
+                  <span>Stock quantity *</span>
                   <input
                     type="number"
                     min="0"
@@ -809,109 +771,92 @@ export const AdminProductsPage = () => {
                       setProductForm((prev) => ({ ...prev, stockQuantity: e.target.value }))
                     }
                     placeholder="10"
-                    style={{
-                      ...styles.input,
-                      borderColor: productFormErrors.stockQuantity ? '#ef4444' : '#334155',
-                    }}
                   />
-                  {productFormErrors.stockQuantity && (
-                    <span style={styles.fieldErrorText}>{productFormErrors.stockQuantity}</span>
-                  )}
-                </div>
-              </div>
-
-              <div style={styles.field}>
-                <label style={styles.label}>
-                  Category <span style={{ color: '#ef4444' }}>*</span>
+                  {productFormErrors.stockQuantity && <small>{productFormErrors.stockQuantity}</small>}
                 </label>
-                <select
-                  value={productForm.categoryId}
-                  onChange={(e) =>
-                    setProductForm((prev) => ({ ...prev, categoryId: e.target.value }))
-                  }
-                  style={{
-                    ...styles.input,
-                    borderColor: productFormErrors.categoryId ? '#ef4444' : '#334155',
-                  }}
-                >
-                  <option value="">-- Select Category --</option>
-                  {categories.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
-                {productFormErrors.categoryId && (
-                  <span style={styles.fieldErrorText}>{productFormErrors.categoryId}</span>
-                )}
-              </div>
 
-              <div style={styles.field}>
-                <label style={styles.label}>Image URL (optional)</label>
-                <input
-                  type="url"
-                  value={productForm.imageUrl}
-                  onChange={(e) =>
-                    setProductForm((prev) => ({ ...prev, imageUrl: e.target.value }))
-                  }
-                  placeholder="https://images.unsplash.com/..."
-                  style={{
-                    ...styles.input,
-                    borderColor: productFormErrors.imageUrl ? '#ef4444' : '#334155',
-                  }}
-                />
-                {productFormErrors.imageUrl && (
-                  <span style={styles.fieldErrorText}>{productFormErrors.imageUrl}</span>
-                )}
+                {/* Image URL */}
+                <label className={productFormErrors.imageUrl ? 'field-error' : ''}>
+                  <span>Image URL (optional)</span>
+                  <input
+                    type="url"
+                    value={productForm.imageUrl}
+                    onChange={(e) =>
+                      setProductForm((prev) => ({ ...prev, imageUrl: e.target.value }))
+                    }
+                    placeholder="https://..."
+                  />
+                  {productFormErrors.imageUrl && <small>{productFormErrors.imageUrl}</small>}
+                </label>
+
+                {/* Description */}
+                <label className="span-2">
+                  <span>Description</span>
+                  <textarea
+                    rows={3}
+                    value={productForm.description}
+                    onChange={(e) =>
+                      setProductForm((prev) => ({ ...prev, description: e.target.value }))
+                    }
+                    placeholder="Describe the product specifications, features, warranty..."
+                  />
+                </label>
+
+                {/* Image Preview if provided */}
                 {productForm.imageUrl && (
-                  <div style={{ marginTop: '0.4rem', display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Preview:</span>
-                    <img
+                  <div className="span-2" style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 14px', background: 'var(--canvas)', borderRadius: '6px' }}>
+                    <ProductImage
                       src={productForm.imageUrl}
                       alt="Preview"
-                      style={{ width: '40px', height: '40px', borderRadius: '4px', objectFit: 'cover', border: '1px solid #334155' }}
-                      onError={(e) => {
-                        e.currentTarget.style.display = 'none';
-                        const errSpan = e.currentTarget.nextElementSibling;
-                        if (errSpan) errSpan.style.display = 'inline';
-                      }}
+                      style={{ width: '42px', height: '42px', borderRadius: '4px', objectFit: 'cover' }}
                     />
-                    <span style={{ display: 'none', fontSize: '0.75rem', color: '#f59e0b' }}>
-                      ⚠️ Image failed to load. Please verify the URL points directly to an image.
-                    </span>
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--ink)' }}>Image preview</span>
+                      <small style={{ color: 'var(--muted)', fontSize: '10px' }}>Verify the image renders cleanly before saving.</small>
+                    </div>
                   </div>
                 )}
-              </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginTop: '0.3rem' }}>
-                <input
-                  type="checkbox"
-                  id="product-enabled-checkbox"
-                  checked={productForm.enabled}
-                  onChange={(e) =>
-                    setProductForm((prev) => ({ ...prev, enabled: e.target.checked }))
-                  }
-                  style={{ width: '16px', height: '16px', accentColor: '#6366f1' }}
-                />
-                <label htmlFor="product-enabled-checkbox" style={{ color: '#cbd5e1', fontSize: '0.85rem' }}>
-                  Enable product immediately (visible to customers)
+                {/* Enable Checkbox */}
+                <label className="span-2" style={{ flexDirection: 'row', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={productForm.enabled}
+                    onChange={(e) =>
+                      setProductForm((prev) => ({ ...prev, enabled: e.target.checked }))
+                    }
+                    style={{ minHeight: 'auto', width: '16px', height: '16px', accentColor: 'var(--primary)' }}
+                  />
+                  <span style={{ fontWeight: 500, fontSize: '12px' }}>
+                    Enable product immediately (visible in customer catalog)
+                  </span>
                 </label>
               </div>
 
-              <div style={{ display: 'flex', gap: '0.8rem', marginTop: '1.2rem' }}>
-                <button
-                  type="submit"
-                  disabled={savingProduct}
-                  style={styles.primaryBtn}
-                >
-                  {savingProduct ? 'Saving...' : editingProductId ? 'Update Product' : 'Create Product'}
-                </button>
+              <div className="modal-actions">
                 <button
                   type="button"
+                  className="btn btn-secondary"
+                  disabled={savingProduct}
                   onClick={() => setShowProductModal(false)}
-                  style={styles.cancelBtn}
                 >
                   Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  disabled={savingProduct}
+                >
+                  {savingProduct ? (
+                    <>
+                      <span className="spinner" style={{ marginRight: '6px' }} />
+                      Saving…
+                    </>
+                  ) : editingProductId ? (
+                    'Update product'
+                  ) : (
+                    'Save product'
+                  )}
                 </button>
               </div>
             </form>
@@ -919,86 +864,99 @@ export const AdminProductsPage = () => {
         </div>
       )}
 
-      {/* Confirmation Dialog for Product Deactivation / Activation */}
+      {/* ── Product Activation / Deactivation Confirmation Dialog ── */}
       {confirmModal.isOpen && confirmModal.product && (
-        <div style={styles.modalOverlay}>
-          <div style={{ ...styles.modalContent, maxWidth: '480px' }}>
-            <div style={styles.modalHeader}>
-              <h3 style={{ ...styles.modalTitle, color: confirmModal.action === 'disable' ? '#f87171' : '#4ade80' }}>
-                {confirmModal.action === 'disable'
-                  ? 'Confirm Product Deactivation'
-                  : 'Confirm Product Re-activation'}
-              </h3>
+        <div
+          className="modal-backdrop"
+          onClick={() =>
+            !confirmModal.loading &&
+            setConfirmModal({ isOpen: false, product: null, action: 'disable', loading: false })
+          }
+        >
+          <div className="modal" style={{ maxWidth: '480px' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <div>
+                <h2>
+                  {confirmModal.action === 'disable'
+                    ? 'Deactivate product?'
+                    : 'Re-enable product?'}
+                </h2>
+                <p>
+                  {confirmModal.action === 'disable'
+                    ? 'This product will be hidden from customer view.'
+                    : 'This product will reappear immediately in the catalog.'}
+                </p>
+              </div>
               <button
                 type="button"
+                className="modal-close"
+                disabled={confirmModal.loading}
                 onClick={() =>
                   setConfirmModal({ isOpen: false, product: null, action: 'disable', loading: false })
                 }
-                style={styles.modalCloseBtn}
               >
-                ✕
+                <Icon name="close" size={16} />
               </button>
             </div>
 
-            <div style={{ color: '#cbd5e1', fontSize: '0.9rem', lineHeight: '1.5', marginBottom: '1.2rem' }}>
+            <div className="modal-body">
+              <div style={{ marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <ProductImage
+                  src={confirmModal.product.imageUrl}
+                  alt={confirmModal.product.name}
+                  style={{ width: '40px', height: '40px', borderRadius: '4px', objectFit: 'cover' }}
+                />
+                <div>
+                  <strong style={{ color: 'var(--ink)', fontSize: '13px', display: 'block' }}>
+                    {confirmModal.product.name}
+                  </strong>
+                  <small style={{ color: 'var(--muted)', fontSize: '11px' }}>
+                    {confirmModal.product.category?.name || 'Catalog product'} · ₹{Number(confirmModal.product.price || 0).toLocaleString('en-IN')}
+                  </small>
+                </div>
+              </div>
+
               {confirmModal.action === 'disable' ? (
-                <>
-                  <p>
-                    Are you sure you want to deactivate <strong>{confirmModal.product.name}</strong>?
-                  </p>
-                  <div style={styles.safetyBox}>
-                    <p style={{ margin: '0 0 0.4rem 0', fontWeight: '600', color: '#fca5a5' }}>
-                      ⚠️ Safety & Order Integrity:
-                    </p>
-                    <ul style={{ margin: 0, paddingLeft: '1.2rem', color: '#cbd5e1', fontSize: '0.82rem' }}>
-                      <li>This product will immediately be hidden from customer storefront pages.</li>
-                      <li>Customers will not be able to add this item to their carts or purchase it.</li>
-                      <li>
-                        <strong>Existing orders are fully preserved</strong>: Completed and processing
-                        orders referencing this product remain intact and unmodified.
-                      </li>
-                      <li>You can re-enable this product at any time from this admin screen.</li>
-                    </ul>
-                  </div>
-                </>
+                <div className="warning-box">
+                  <b>Safety & order integrity notice:</b>
+                  <span>
+                    Past customer orders containing this item remain intact and unmodified. The product is safely hidden from the storefront and can be re-enabled anytime.
+                  </span>
+                </div>
               ) : (
-                <>
-                  <p>
-                    Are you sure you want to re-enable <strong>{confirmModal.product.name}</strong>?
-                  </p>
-                  <p style={{ color: '#94a3b8', fontSize: '0.85rem' }}>
-                    This product will be reactivated and will immediately reappear in the customer
-                    storefront catalog and search results.
-                  </p>
-                </>
+                <p className="modal-copy">
+                  Re-enabling will restore this product to customer catalog listings and search results.
+                </p>
               )}
             </div>
 
-            <div style={{ display: 'flex', gap: '0.8rem', justifyContent: 'flex-end' }}>
+            <div className="modal-actions">
               <button
                 type="button"
+                className="btn btn-secondary"
+                disabled={confirmModal.loading}
                 onClick={() =>
                   setConfirmModal({ isOpen: false, product: null, action: 'disable', loading: false })
                 }
-                style={styles.cancelBtn}
-                disabled={confirmModal.loading}
               >
                 Cancel
               </button>
               <button
                 type="button"
-                onClick={handleConfirmToggleAction}
+                className={confirmModal.action === 'disable' ? 'btn btn-danger' : 'btn btn-primary'}
                 disabled={confirmModal.loading}
-                style={{
-                  ...styles.primaryBtn,
-                  backgroundColor: confirmModal.action === 'disable' ? '#ef4444' : '#22c55e',
-                }}
+                onClick={handleConfirmToggleAction}
               >
-                {confirmModal.loading
-                  ? 'Processing...'
-                  : confirmModal.action === 'disable'
-                  ? 'Yes, Deactivate Product'
-                  : 'Yes, Re-enable Product'}
+                {confirmModal.loading ? (
+                  <>
+                    <span className="spinner" style={{ marginRight: '6px' }} />
+                    Updating…
+                  </>
+                ) : confirmModal.action === 'disable' ? (
+                  'Confirm deactivation'
+                ) : (
+                  'Confirm activation'
+                )}
               </button>
             </div>
           </div>
@@ -1006,413 +964,6 @@ export const AdminProductsPage = () => {
       )}
     </div>
   );
-};
-
-const styles = {
-  container: {
-    maxWidth: '1280px',
-    margin: '0 auto',
-    padding: '2rem 1.5rem',
-  },
-  header: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: '1.5rem',
-    gap: '1rem',
-    flexWrap: 'wrap',
-  },
-  title: {
-    color: '#f8fafc',
-    fontSize: '1.8rem',
-    fontWeight: '800',
-    margin: 0,
-  },
-  subtitle: {
-    color: '#94a3b8',
-    fontSize: '0.9rem',
-    marginTop: '0.3rem',
-    marginBottom: 0,
-  },
-  primaryBtn: {
-    padding: '0.65rem 1.2rem',
-    backgroundColor: '#6366f1',
-    color: '#ffffff',
-    border: 'none',
-    borderRadius: '8px',
-    fontWeight: '600',
-    cursor: 'pointer',
-    transition: 'background-color 0.15s ease',
-  },
-  secBtn: {
-    padding: '0.65rem 1.2rem',
-    backgroundColor: '#1e293b',
-    color: '#e2e8f0',
-    border: '1px solid #334155',
-    borderRadius: '8px',
-    fontWeight: '600',
-    cursor: 'pointer',
-  },
-  categoryCard: {
-    backgroundColor: '#0f172a',
-    border: '1px solid #1e293b',
-    borderRadius: '12px',
-    padding: '1.25rem',
-    marginBottom: '1.5rem',
-  },
-  categoryCardHeader: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: '0.8rem',
-  },
-  textLinkBtn: {
-    background: 'none',
-    border: 'none',
-    color: '#818cf8',
-    fontSize: '0.82rem',
-    cursor: 'pointer',
-    fontWeight: '600',
-  },
-  categoryGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
-    gap: '0.75rem',
-  },
-  mainCatBox: {
-    border: '1px solid #334155',
-    borderRadius: '8px',
-    padding: '0.75rem',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '0.5rem',
-  },
-  mainCatTitleRow: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  catFilterLink: {
-    background: 'none',
-    border: 'none',
-    textAlign: 'left',
-    padding: 0,
-    cursor: 'pointer',
-    fontSize: '0.88rem',
-  },
-  badgeCount: {
-    backgroundColor: '#0f172a',
-    color: '#94a3b8',
-    fontSize: '0.72rem',
-    padding: '2px 6px',
-    borderRadius: '10px',
-  },
-  filterCard: {
-    backgroundColor: '#0f172a',
-    border: '1px solid #1e293b',
-    borderRadius: '12px',
-    padding: '1.2rem',
-    marginBottom: '1.5rem',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '1rem',
-  },
-  searchForm: {
-    display: 'flex',
-    gap: '0.75rem',
-    width: '100%',
-  },
-  searchInputWrap: {
-    flex: 1,
-    display: 'flex',
-    alignItems: 'center',
-    backgroundColor: '#1e293b',
-    border: '1px solid #334155',
-    borderRadius: '8px',
-    overflow: 'hidden',
-  },
-  filterSearchInput: {
-    flex: 1,
-    padding: '0.65rem 0.8rem',
-    backgroundColor: 'transparent',
-    border: 'none',
-    color: '#f8fafc',
-    fontSize: '0.9rem',
-    outline: 'none',
-  },
-  clearSearchBtn: {
-    background: 'none',
-    border: 'none',
-    color: '#94a3b8',
-    padding: '0.4rem 0.8rem',
-    cursor: 'pointer',
-  },
-  searchSubmitBtn: {
-    padding: '0.65rem 1.4rem',
-    backgroundColor: '#3b82f6',
-    color: '#ffffff',
-    border: 'none',
-    borderRadius: '8px',
-    fontWeight: '600',
-    cursor: 'pointer',
-  },
-  filterControlsRow: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '1.5rem',
-    flexWrap: 'wrap',
-  },
-  filterControlGroup: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '0.5rem',
-  },
-  filterLabel: {
-    color: '#94a3b8',
-    fontSize: '0.85rem',
-    fontWeight: '600',
-  },
-  filterSelect: {
-    padding: '0.55rem 0.85rem',
-    backgroundColor: '#1e293b',
-    border: '1px solid #334155',
-    borderRadius: '6px',
-    color: '#f8fafc',
-    fontSize: '0.85rem',
-  },
-  statusToggleGroup: {
-    display: 'flex',
-    backgroundColor: '#0f172a',
-    border: '1px solid #334155',
-    borderRadius: '6px',
-    overflow: 'hidden',
-  },
-  statusToggleBtn: {
-    border: 'none',
-    padding: '0.5rem 0.9rem',
-    fontSize: '0.82rem',
-    fontWeight: '600',
-    cursor: 'pointer',
-  },
-  resetFiltersBtn: {
-    background: 'none',
-    border: '1px solid #475569',
-    color: '#cbd5e1',
-    padding: '0.5rem 0.9rem',
-    borderRadius: '6px',
-    fontSize: '0.82rem',
-    cursor: 'pointer',
-  },
-  activeFiltersRow: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '0.6rem',
-    flexWrap: 'wrap',
-    paddingTop: '0.5rem',
-    borderTop: '1px solid #1e293b',
-  },
-  activeFilterPill: {
-    backgroundColor: '#1e293b',
-    color: '#cbd5e1',
-    border: '1px solid #334155',
-    padding: '3px 8px',
-    borderRadius: '12px',
-    fontSize: '0.78rem',
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: '0.4rem',
-  },
-  pillClose: {
-    background: 'none',
-    border: 'none',
-    color: '#f87171',
-    cursor: 'pointer',
-    fontSize: '0.75rem',
-    padding: 0,
-  },
-  tableCard: {
-    backgroundColor: '#0f172a',
-    border: '1px solid #1e293b',
-    borderRadius: '12px',
-    padding: '1.25rem',
-    overflowX: 'auto',
-  },
-  tableStatsBar: {
-    marginBottom: '1rem',
-  },
-  emptyState: {
-    padding: '3rem 1.5rem',
-    textAlign: 'center',
-  },
-  table: {
-    width: '100%',
-    borderCollapse: 'collapse',
-    textAlign: 'left',
-  },
-  th: {
-    color: '#94a3b8',
-    fontSize: '0.8rem',
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    padding: '0.75rem',
-    borderBottom: '1px solid #1e293b',
-  },
-  tr: {
-    borderBottom: '1px solid #1e293b',
-  },
-  td: {
-    padding: '0.9rem 0.75rem',
-    color: '#cbd5e1',
-    fontSize: '0.88rem',
-    verticalAlign: 'middle',
-  },
-  thumbnail: {
-    width: '42px',
-    height: '42px',
-    borderRadius: '6px',
-    objectFit: 'cover',
-    backgroundColor: '#1e293b',
-  },
-  noThumbnail: {
-    width: '42px',
-    height: '42px',
-    borderRadius: '6px',
-    backgroundColor: '#1e293b',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontSize: '1.2rem',
-  },
-  categoryBadge: {
-    backgroundColor: '#1e293b',
-    color: '#cbd5e1',
-    padding: '3px 8px',
-    borderRadius: '4px',
-    fontSize: '0.78rem',
-    border: '1px solid #334155',
-  },
-  stockBadge: {
-    padding: '3px 8px',
-    borderRadius: '4px',
-    fontSize: '0.78rem',
-    fontWeight: '600',
-  },
-  statusBadge: {
-    padding: '3px 8px',
-    borderRadius: '4px',
-    fontSize: '0.75rem',
-    fontWeight: '700',
-  },
-  actionEditBtn: {
-    backgroundColor: '#1e293b',
-    border: '1px solid #334155',
-    color: '#818cf8',
-    padding: '4px 10px',
-    borderRadius: '5px',
-    cursor: 'pointer',
-    fontWeight: '600',
-    fontSize: '0.8rem',
-  },
-  actionToggleBtn: {
-    backgroundColor: '#1e293b',
-    border: '1px solid #334155',
-    padding: '4px 10px',
-    borderRadius: '5px',
-    cursor: 'pointer',
-    fontWeight: '600',
-    fontSize: '0.8rem',
-  },
-  modalOverlay: {
-    position: 'fixed',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.75)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 200,
-    padding: '1rem',
-  },
-  modalContent: {
-    backgroundColor: '#0f172a',
-    border: '1px solid #1e293b',
-    borderRadius: '12px',
-    padding: '1.75rem',
-    width: '100%',
-    maxWidth: '540px',
-    maxHeight: '90vh',
-    overflowY: 'auto',
-  },
-  modalHeader: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: '1.25rem',
-  },
-  modalTitle: {
-    color: '#f8fafc',
-    fontSize: '1.25rem',
-    fontWeight: '700',
-    margin: 0,
-  },
-  modalCloseBtn: {
-    background: 'none',
-    border: 'none',
-    color: '#94a3b8',
-    fontSize: '1.1rem',
-    cursor: 'pointer',
-  },
-  form: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '0.9rem',
-  },
-  field: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '0.3rem',
-  },
-  label: {
-    color: '#cbd5e1',
-    fontSize: '0.85rem',
-    fontWeight: '600',
-  },
-  input: {
-    padding: '0.65rem',
-    backgroundColor: '#1e293b',
-    border: '1px solid #334155',
-    borderRadius: '6px',
-    color: '#f8fafc',
-    fontSize: '0.9rem',
-  },
-  fieldErrorText: {
-    color: '#ef4444',
-    fontSize: '0.78rem',
-    marginTop: '0.2rem',
-  },
-  cancelBtn: {
-    padding: '0.65rem 1.2rem',
-    backgroundColor: 'transparent',
-    color: '#94a3b8',
-    border: '1px solid #475569',
-    borderRadius: '6px',
-    cursor: 'pointer',
-  },
-  infoBanner: {
-    backgroundColor: '#1e293b',
-    border: '1px solid #334155',
-    padding: '0.75rem',
-    borderRadius: '6px',
-  },
-  safetyBox: {
-    backgroundColor: 'rgba(239, 68, 68, 0.1)',
-    border: '1px solid rgba(239, 68, 68, 0.3)',
-    borderRadius: '8px',
-    padding: '0.85rem',
-    marginTop: '0.8rem',
-  },
 };
 
 export default AdminProductsPage;

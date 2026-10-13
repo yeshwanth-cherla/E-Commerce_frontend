@@ -17,159 +17,122 @@ export const RegisterPage = () => {
     e.preventDefault();
     setErrorMessage('');
     setSuccessMessage('');
+
+    if (password.length < 6) {
+      setErrorMessage('Password must be at least 6 characters long.');
+      return;
+    }
+
     setLoading(true);
 
     try {
       await signUp(email, password, fullName);
-      setSuccessMessage('Account created successfully! Check your email or sign in.');
+      setSuccessMessage('Account created successfully! Redirecting to sign in…');
       setTimeout(() => {
         navigate('/login');
       }, 2000);
     } catch (err) {
-      setErrorMessage(err.message || 'Registration failed. Please try again.');
+      setErrorMessage(err.message || 'Registration failed. Please check your information.');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div style={styles.container}>
-      <div style={styles.card}>
-        <h2 style={styles.title}>Create Your Account</h2>
-        <p style={styles.subtitle}>Join us today to start shopping!</p>
+    <div className="auth-page">
+      <div className="auth-card">
+        <div className="auth-header">
+          <span className="kicker">Join Aster</span>
+          <h1>Create an account</h1>
+          <p>Join us today to explore verified products and place orders.</p>
+        </div>
 
-        <AlertMessage type="error" message={errorMessage} onClose={() => setErrorMessage('')} />
-        <AlertMessage type="success" message={successMessage} onClose={() => setSuccessMessage('')} />
+        {errorMessage && (
+          <div style={{ marginBottom: '18px' }}>
+            <AlertMessage
+              type="error"
+              message={errorMessage}
+              onClose={() => setErrorMessage('')}
+            />
+          </div>
+        )}
 
-        <form onSubmit={handleSubmit} style={styles.form}>
-          <div style={styles.field}>
-            <label style={styles.label}>Full Name</label>
+        {successMessage && (
+          <div style={{ marginBottom: '18px' }}>
+            <AlertMessage
+              type="success"
+              message={successMessage}
+              onClose={() => setSuccessMessage('')}
+            />
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="auth-form" noValidate>
+          <div className="auth-field">
+            <label htmlFor="register-name">Full Name</label>
             <input
+              id="register-name"
               type="text"
               required
+              autoComplete="name"
               value={fullName}
               onChange={(e) => setFullName(e.target.value)}
-              placeholder="John Doe"
-              style={styles.input}
+              placeholder="e.g. Ananya Sharma"
             />
           </div>
 
-          <div style={styles.field}>
-            <label style={styles.label}>Email Address</label>
+          <div className="auth-field">
+            <label htmlFor="register-email">Email Address</label>
             <input
+              id="register-email"
               type="email"
               required
+              autoComplete="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="user@example.com"
-              style={styles.input}
+              placeholder="e.g. ananya@example.com"
             />
           </div>
 
-          <div style={styles.field}>
-            <label style={styles.label}>Password</label>
+          <div className="auth-field">
+            <label htmlFor="register-password">Password</label>
             <input
+              id="register-password"
               type="password"
               required
               minLength={6}
+              autoComplete="new-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Minimum 6 characters"
-              style={styles.input}
             />
           </div>
 
-          <button type="submit" disabled={loading} style={styles.button}>
-            {loading ? 'Creating account...' : 'Create Account'}
+          <button
+            type="submit"
+            disabled={loading}
+            className="btn btn-primary full"
+            style={{ marginTop: '8px' }}
+          >
+            {loading ? (
+              <>
+                <span className="spinner" /> Creating account…
+              </>
+            ) : (
+              'Create Account'
+            )}
           </button>
         </form>
 
-        <p style={styles.footerText}>
+        <p className="auth-footer">
           Already have an account?{' '}
-          <Link to="/login" style={styles.link}>
+          <Link to="/login">
             Sign In
           </Link>
         </p>
       </div>
     </div>
   );
-};
-
-const styles = {
-  container: {
-    display: 'flex',
-    justifyContent: 'center',
-    alignItems: 'center',
-    minHeight: '75vh',
-    padding: '1.5rem',
-  },
-  card: {
-    backgroundColor: '#0f172a',
-    border: '1px solid #1e293b',
-    borderRadius: '12px',
-    padding: '2.5rem',
-    width: '100%',
-    maxWidth: '420px',
-    boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5)',
-  },
-  title: {
-    color: '#f8fafc',
-    fontSize: '1.5rem',
-    fontWeight: '700',
-    marginBottom: '0.4rem',
-    textAlign: 'center',
-  },
-  subtitle: {
-    color: '#94a3b8',
-    fontSize: '0.9rem',
-    textAlign: 'center',
-    marginBottom: '1.5rem',
-  },
-  form: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '1.2rem',
-  },
-  field: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '0.4rem',
-  },
-  label: {
-    color: '#cbd5e1',
-    fontSize: '0.85rem',
-    fontWeight: '500',
-  },
-  input: {
-    padding: '0.7rem 0.9rem',
-    backgroundColor: '#1e293b',
-    border: '1px solid #334155',
-    borderRadius: '6px',
-    color: '#f8fafc',
-    fontSize: '0.95rem',
-  },
-  button: {
-    padding: '0.8rem',
-    backgroundColor: '#6366f1',
-    color: '#ffffff',
-    border: 'none',
-    borderRadius: '6px',
-    fontWeight: '600',
-    fontSize: '0.95rem',
-    cursor: 'pointer',
-    marginTop: '0.5rem',
-  },
-  footerText: {
-    color: '#94a3b8',
-    fontSize: '0.85rem',
-    textAlign: 'center',
-    marginTop: '1.5rem',
-  },
-  link: {
-    color: '#818cf8',
-    textDecoration: 'none',
-    fontWeight: '600',
-  },
 };
 
 export default RegisterPage;

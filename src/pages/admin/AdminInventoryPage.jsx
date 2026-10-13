@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import apiClient from '../../services/apiClient';
-import LoadingSpinner from '../../components/LoadingSpinner';
-import AlertMessage from '../../components/AlertMessage';
-import Pagination from '../../components/Pagination';
+import { apiClient } from '../../services/apiClient';
+import { LoadingSpinner } from '../../components/LoadingSpinner';
+import { AlertMessage } from '../../components/AlertMessage';
+import { Icon } from '../../components/Icon';
 import { useProductRealtime } from '../../hooks/useProductRealtime';
 import { filterApprovedCategories } from '../../constants/categories';
 
-export default function AdminInventoryPage() {
+export const AdminInventoryPage = () => {
   const [items, setItems] = useState([]);
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -25,7 +25,7 @@ export default function AdminInventoryPage() {
   // Adjustment Modal
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [adjustmentType, setAdjustmentType] = useState('ADD'); // 'ADD' | 'SUBTRACT' | 'SET'
-  const [quantity, setQuantity] = useState(1);
+  const [quantity, setQuantity] = useState(5);
   const [reason, setReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
@@ -75,7 +75,7 @@ export default function AdminInventoryPage() {
       setTotalElements(res.data.totalElements || 0);
     } catch (err) {
       console.error('Failed to load inventory', err);
-      setError(err.response?.data?.message || 'Failed to load inventory');
+      setError(err.response?.data?.message || 'Failed to load inventory records');
     } finally {
       setLoading(false);
     }
@@ -89,12 +89,27 @@ export default function AdminInventoryPage() {
     fetchInventory();
   }, [fetchInventory]);
 
-  // Real-time synchronization for Admin Inventory & stock updates
+  // Real-time synchronization for inventory
   useProductRealtime({
     onChange: () => {
       fetchInventory();
     },
   });
+
+  // Calculate inventory metrics from current page and server totals
+  const inventoryCounts = useMemo(() => {
+    let outOfStock = 0;
+    let lowStock = 0;
+    let inStock = 0;
+
+    items.forEach((item) => {
+      if (item.stockQuantity === 0) outOfStock++;
+      else if (item.stockQuantity <= threshold) lowStock++;
+      else inStock++;
+    });
+
+    return { outOfStock, lowStock, inStock };
+  }, [items, threshold]);
 
   // Calculate projected stock for selected product adjustment
   const projectedStock = useMemo(() => {
@@ -167,7 +182,7 @@ export default function AdminInventoryPage() {
       );
       setSelectedProduct(null);
       setReason('');
-      setQuantity(1);
+      setQuantity(5);
       await fetchInventory();
       setTimeout(() => setSuccess(''), 4000);
     } catch (err) {
@@ -194,7 +209,6 @@ export default function AdminInventoryPage() {
     }
   };
 
-  // Reset all filters
   const handleResetFilters = () => {
     setSearch('');
     setCategoryId('');
@@ -203,212 +217,298 @@ export default function AdminInventoryPage() {
     setPage(0);
   };
 
-  // Common quick audit reason suggestions
   const REASON_SUGGESTIONS = [
     'Restock shipment received from supplier',
-    'Periodic physical inventory count reconciliation',
+    'Physical inventory count reconciliation',
     'Damaged or defective goods written off',
-    'Customer return returned to warehouse stock',
+    'Customer return restored to stock',
   ];
 
+  const formatDate = (isoString) => {
+    if (!isoString) return '—';
+    try {
+      const d = new Date(isoString);
+      return `${d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })} at ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    } catch {
+      return isoString;
+    }
+  };
+
+  const selectedCategoryObj = categoryId
+    ? categories.find((c) => c.id === Number(categoryId))
+    : null;
+
   return (
-    <div style={styles.container}>
-      {/* Header */}
-      <div style={styles.header}>
+    <div className="admin-content">
+      {/* ── Intro Header ── */}
+      <div className="admin-intro">
         <div>
-          <h1 style={styles.title}>Inventory & Stock Control</h1>
-          <p style={styles.subtitle}>
-            Monitor real-time warehouse levels, configure low-stock alerts, and log audited adjustments.
-          </p>
+          <h2>Inventory & Stock</h2>
+          <p>Monitor warehouse levels, configure stock thresholds, and log auditable adjustments.</p>
         </div>
       </div>
 
       {/* Alerts */}
-      {error && <AlertMessage type="error" message={error} onClose={() => setError('')} />}
-      {success && <AlertMessage type="success" message={success} onClose={() => setSuccess('')} />}
+      {error && (
+        <div style={{ marginBottom: '16px' }}>
+          <AlertMessage type="error" message={error} onClose={() => setError('')} />
+        </div>
+      )}
+      {success && (
+        <div style={{ marginBottom: '16px' }}>
+          <AlertMessage type="success" message={success} onClose={() => setSuccess('')} />
+        </div>
+      )}
 
-      {/* Controls & Filter Bar */}
-      <div style={styles.card}>
-        <div style={styles.filterGrid}>
-          {/* Search Input */}
-          <div style={styles.filterCol}>
-            <label style={styles.filterLabel}>Search Product</label>
-            <div style={styles.inputWrap}>
-              <span style={{ color: '#64748b' }}>🔍</span>
-              <input
-                id="admin-inventory-search"
-                type="text"
-                placeholder="Product name or description..."
-                value={search}
-                onChange={(e) => {
-                  setSearch(e.target.value);
+      {/* ── Inventory Metric Cards ── */}
+      <div className="metric-grid" style={{ marginBottom: '20px' }}>
+        <article className="metric-card">
+          <span>
+            <Icon name="box" size={20} />
+          </span>
+          <div>
+            <small>Total Tracked Items</small>
+            <strong>{totalElements}</strong>
+          </div>
+        </article>
+
+        <article className="metric-card">
+          <span>
+            <Icon name="check" size={20} />
+          </span>
+          <div>
+            <small>In Stock (Healthy)</small>
+            <strong>{inventoryCounts.inStock}</strong>
+          </div>
+        </article>
+
+        <article className="metric-card">
+          <span
+            style={
+              inventoryCounts.lowStock > 0
+                ? { background: 'var(--warning-soft)', color: 'var(--warning)' }
+                : {}
+            }
+          >
+            <Icon name="grid" size={20} />
+          </span>
+          <div>
+            <small>Low-Stock Attention</small>
+            <strong style={inventoryCounts.lowStock > 0 ? { color: 'var(--warning)' } : {}}>
+              {inventoryCounts.lowStock}
+            </strong>
+          </div>
+        </article>
+
+        <article className="metric-card">
+          <span
+            style={
+              inventoryCounts.outOfStock > 0
+                ? { background: 'var(--danger-soft)', color: 'var(--danger)' }
+                : {}
+            }
+          >
+            <Icon name="bag" size={20} />
+          </span>
+          <div>
+            <small>Out of Stock</small>
+            <strong style={inventoryCounts.outOfStock > 0 ? { color: 'var(--danger)' } : {}}>
+              {inventoryCounts.outOfStock}
+            </strong>
+          </div>
+        </article>
+      </div>
+
+      {/* ── Main Panel ── */}
+      <section className="panel">
+        {/* Filters Bar */}
+        <div className="filters">
+          {/* Search Box */}
+          <label className="admin-search" style={{ minWidth: '220px', maxWidth: '300px' }}>
+            <Icon name="search" size={16} />
+            <input
+              id="admin-inventory-search"
+              type="text"
+              placeholder="Search product name..."
+              value={search}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setPage(0);
+              }}
+            />
+            {search && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearch('');
                   setPage(0);
                 }}
-                style={styles.innerInput}
-              />
-              {search && (
+                style={{ border: 0, background: 'none', color: 'var(--muted)', cursor: 'pointer', padding: 0 }}
+                aria-label="Clear search"
+              >
+                <Icon name="close" size={14} />
+              </button>
+            )}
+          </label>
+
+          {/* Category Dropdown */}
+          <select
+            id="admin-inventory-category-select"
+            aria-label="Filter by category"
+            value={categoryId}
+            onChange={(e) => {
+              setCategoryId(e.target.value);
+              setPage(0);
+            }}
+          >
+            <option value="">All Categories ({categories.length})</option>
+            {categories.map((cat) => (
+              <option key={cat.id} value={cat.id}>
+                {cat.name}
+              </option>
+            ))}
+          </select>
+
+          {/* Stock Health Select */}
+          <select
+            aria-label="Filter by stock health"
+            value={stockStatusFilter}
+            onChange={(e) => {
+              setStockStatusFilter(e.target.value);
+              setPage(0);
+            }}
+          >
+            <option value="ALL">All stock levels</option>
+            <option value="IN_STOCK">In stock (&gt; {threshold})</option>
+            <option value="LOW_STOCK">Low stock (≤ {threshold})</option>
+            <option value="OUT_OF_STOCK">Out of stock (0)</option>
+          </select>
+
+          {/* Configurable Threshold Input */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--muted)' }}>
+            <span>Threshold:</span>
+            <input
+              id="admin-inventory-threshold-input"
+              type="number"
+              min="0"
+              aria-label="Low stock threshold"
+              value={threshold}
+              onChange={(e) => {
+                setThreshold(Math.max(0, parseInt(e.target.value, 10) || 0));
+                setPage(0);
+              }}
+              style={{
+                width: '60px',
+                height: '38px',
+                padding: '0 8px',
+                borderRadius: '6px',
+                border: '1px solid var(--line-strong)',
+                fontSize: '12px',
+                textAlign: 'center',
+                color: 'var(--ink)',
+              }}
+            />
+          </div>
+
+          {/* Result Count Indicator */}
+          <span className="result-count">
+            {totalElements} {totalElements === 1 ? 'record' : 'records'}
+          </span>
+        </div>
+
+        {/* Active Filter Chips */}
+        {(search || selectedCategoryObj || stockStatusFilter !== 'ALL') && (
+          <div className="active-filters-bar">
+            <span style={{ color: 'var(--muted)', fontWeight: 600, fontSize: '11px' }}>Active filters:</span>
+            {search && (
+              <span className="active-filter-chip">
+                Search: &ldquo;{search}&rdquo;
                 <button
                   type="button"
                   onClick={() => {
                     setSearch('');
                     setPage(0);
                   }}
-                  style={styles.clearBtn}
+                  aria-label="Remove search"
                 >
                   ✕
                 </button>
-              )}
-            </div>
-          </div>
-
-          {/* Category Dropdown */}
-          <div style={styles.filterCol}>
-            <label style={styles.filterLabel}>Category</label>
-            <select
-              id="admin-inventory-category-select"
-              value={categoryId}
-              onChange={(e) => {
-                setCategoryId(e.target.value);
-                setPage(0);
-              }}
-              style={styles.select}
-            >
-              <option value="">All Categories ({categories.length})</option>
-              {categories.map((cat) => (
-                <option key={cat.id} value={cat.id}>
-                  {cat.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Low-Stock Threshold Input */}
-          <div style={styles.filterCol}>
-            <label style={styles.filterLabel}>
-              Low-Stock Threshold ({threshold} units)
-            </label>
-            <input
-              id="admin-inventory-threshold-input"
-              type="number"
-              min="0"
-              value={threshold}
-              onChange={(e) => {
-                setThreshold(Math.max(0, parseInt(e.target.value, 10) || 0));
-                setPage(0);
-              }}
-              style={styles.input}
-            />
-          </div>
-
-          {/* Reset Filters */}
-          <div style={{ ...styles.filterCol, justifyContent: 'flex-end' }}>
+              </span>
+            )}
+            {selectedCategoryObj && (
+              <span className="active-filter-chip">
+                Category: {selectedCategoryObj.name}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCategoryId('');
+                    setPage(0);
+                  }}
+                  aria-label="Remove category"
+                >
+                  ✕
+                </button>
+              </span>
+            )}
+            {stockStatusFilter !== 'ALL' && (
+              <span className="active-filter-chip">
+                Level: {stockStatusFilter.replace(/_/g, ' ')}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStockStatusFilter('ALL');
+                    setPage(0);
+                  }}
+                  aria-label="Remove level filter"
+                >
+                  ✕
+                </button>
+              </span>
+            )}
             <button
+              type="button"
               onClick={handleResetFilters}
-              style={styles.secBtn}
-              title="Reset all filters to defaults"
+              className="btn btn-ghost"
+              style={{ fontSize: '11px', padding: '2px 8px', marginLeft: 'auto' }}
             >
-              Reset Filters
+              Reset all filters
             </button>
           </div>
-        </div>
+        )}
 
-        {/* Stock Status Selector Tabs */}
-        <div style={styles.statusTabsRow}>
-          <span style={{ fontSize: '0.82rem', color: '#94a3b8', fontWeight: '600' }}>
-            Stock Health:
-          </span>
-          <div style={styles.statusTabsGroup}>
-            <button
-              type="button"
-              onClick={() => {
-                setStockStatusFilter('ALL');
-                setPage(0);
-              }}
-              style={{
-                ...styles.tabBtn,
-                backgroundColor: stockStatusFilter === 'ALL' ? '#6366f1' : '#1e293b',
-                color: stockStatusFilter === 'ALL' ? '#ffffff' : '#94a3b8',
-              }}
-            >
-              All Levels
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setStockStatusFilter('IN_STOCK');
-                setPage(0);
-              }}
-              style={{
-                ...styles.tabBtn,
-                backgroundColor: stockStatusFilter === 'IN_STOCK' ? '#22c55e' : '#1e293b',
-                color: stockStatusFilter === 'IN_STOCK' ? '#ffffff' : '#94a3b8',
-              }}
-            >
-              In Stock (&gt; {threshold})
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setStockStatusFilter('LOW_STOCK');
-                setPage(0);
-              }}
-              style={{
-                ...styles.tabBtn,
-                backgroundColor: stockStatusFilter === 'LOW_STOCK' ? '#f59e0b' : '#1e293b',
-                color: stockStatusFilter === 'LOW_STOCK' ? '#ffffff' : '#94a3b8',
-              }}
-            >
-              ⚠️ Low Stock (≤ {threshold})
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setStockStatusFilter('OUT_OF_STOCK');
-                setPage(0);
-              }}
-              style={{
-                ...styles.tabBtn,
-                backgroundColor: stockStatusFilter === 'OUT_OF_STOCK' ? '#ef4444' : '#1e293b',
-                color: stockStatusFilter === 'OUT_OF_STOCK' ? '#ffffff' : '#94a3b8',
-              }}
-            >
-              ⛔ Out of Stock (0)
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Inventory Table Card */}
-      <div style={styles.tableCard}>
-        <div style={{ marginBottom: '1rem', color: '#94a3b8', fontSize: '0.85rem' }}>
-          Showing <strong>{items.length}</strong> product{items.length === 1 ? '' : 's'} on page{' '}
-          <strong>{page + 1}</strong> of <strong>{Math.max(totalPages, 1)}</strong> ({totalElements} total in catalogue)
-        </div>
-
+        {/* Inventory Table */}
         {loading ? (
-          <LoadingSpinner message="Loading warehouse inventory records..." />
+          <div style={{ padding: '48px 0' }}>
+            <LoadingSpinner message="Loading warehouse inventory records..." />
+          </div>
         ) : items.length === 0 ? (
-          <div style={styles.emptyState}>
-            <div style={{ fontSize: '2.5rem', marginBottom: '0.5rem' }}>🗃️</div>
-            <h3 style={{ color: '#f8fafc', marginBottom: '0.3rem' }}>No inventory records found</h3>
-            <p style={{ color: '#94a3b8', fontSize: '0.9rem' }}>
-              No products match your current search, category, or stock status filters.
+          <div style={{ padding: '60px 20px', textAlign: 'center', color: 'var(--muted)' }}>
+            <Icon name="box" size={36} style={{ color: 'var(--subtle)', marginBottom: '8px' }} />
+            <h3 style={{ margin: '8px 0 4px', color: 'var(--ink)' }}>No inventory records found</h3>
+            <p style={{ margin: 0, fontSize: '12px' }}>
+              No products match your active search, category, or stock status filters.
             </p>
-            <button onClick={handleResetFilters} style={{ ...styles.secBtn, marginTop: '1rem' }}>
-              Clear All Filters
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={handleResetFilters}
+              style={{ marginTop: '16px', fontSize: '12px' }}
+            >
+              Clear filters
             </button>
           </div>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={styles.table}>
+          <div className="table-scroll">
+            <table className="admin-table">
               <thead>
                 <tr>
-                  <th style={styles.th}>Product</th>
-                  <th style={styles.th}>Category</th>
-                  <th style={styles.th}>Price</th>
-                  <th style={{ ...styles.th, textAlign: 'center' }}>Stock Health</th>
-                  <th style={{ ...styles.th, textAlign: 'center' }}>Catalogue Status</th>
-                  <th style={{ ...styles.th, textAlign: 'right' }}>Actions</th>
+                  <th>Product</th>
+                  <th>Category</th>
+                  <th>Price</th>
+                  <th>Available Stock</th>
+                  <th>Health Indicator</th>
+                  <th>Status</th>
+                  <th aria-label="Actions" style={{ textAlign: 'right', paddingRight: '20px' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -417,76 +517,75 @@ export default function AdminInventoryPage() {
                   const isLow = !isZero && item.stockQuantity <= threshold;
 
                   return (
-                    <tr key={item.id} style={styles.tr}>
-                      <td style={styles.td}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                          <div style={styles.prodIcon}>📦</div>
-                          <div>
-                            <strong style={{ color: '#f8fafc', fontSize: '0.92rem', display: 'block' }}>
-                              {item.name}
-                            </strong>
-                            <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
-                              ID: {item.id.substring(0, 8)}...
-                            </span>
-                          </div>
+                    <tr key={item.id}>
+                      <td>
+                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                          <strong style={{ color: 'var(--ink)', fontSize: '13px' }}>
+                            {item.name}
+                          </strong>
+                          <small style={{ color: 'var(--muted)', fontSize: '10px' }}>
+                            ID: #{item.id ? item.id.substring(0, 8).toUpperCase() : '—'}
+                          </small>
                         </div>
                       </td>
-                      <td style={styles.td}>
-                        <span style={styles.categoryBadge}>
+                      <td>
+                        <span style={{ color: '#4e5668', fontWeight: 500 }}>
                           {item.category?.name || item.categoryName || 'Uncategorized'}
                         </span>
                       </td>
-                      <td style={styles.td}>
-                        <strong style={{ color: '#38bdf8' }}>₹{Number(item.price).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                      <td>
+                        <b style={{ color: 'var(--ink)' }}>
+                          ₹{Number(item.price || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </b>
                       </td>
-                      <td style={{ ...styles.td, textAlign: 'center' }}>
+                      <td>
+                        <b className={isZero ? 'danger-text' : ''} style={{ fontSize: '13px' }}>
+                          {item.stockQuantity} {item.stockQuantity === 1 ? 'unit' : 'units'}
+                        </b>
+                      </td>
+                      <td>
                         <span
-                          style={{
-                            ...styles.stockPill,
-                            backgroundColor: isZero
-                              ? 'rgba(239, 68, 68, 0.2)'
+                          className={`status-pill ${
+                            isZero
+                              ? 'status-red'
                               : isLow
-                              ? 'rgba(245, 158, 11, 0.2)'
-                              : 'rgba(34, 197, 94, 0.2)',
-                            color: isZero ? '#f87171' : isLow ? '#fbbf24' : '#4ade80',
-                            borderColor: isZero ? 'rgba(239, 68, 68, 0.4)' : isLow ? 'rgba(245, 158, 11, 0.4)' : 'rgba(34, 197, 94, 0.4)',
-                          }}
+                              ? 'status-amber'
+                              : 'status-green'
+                          }`}
                         >
                           {isZero
-                            ? '⛔ Out of Stock'
+                            ? 'Out of stock'
                             : isLow
-                            ? `⚠️ Low Stock (${item.stockQuantity} units)`
-                            : `✅ In Stock (${item.stockQuantity} units)`}
+                            ? `Low stock (≤ ${threshold})`
+                            : 'In stock'}
                         </span>
                       </td>
-                      <td style={{ ...styles.td, textAlign: 'center' }}>
+                      <td>
                         <span
-                          style={{
-                            ...styles.statusBadge,
-                            backgroundColor: item.enabled
-                              ? 'rgba(34, 197, 94, 0.15)'
-                              : 'rgba(239, 68, 68, 0.15)',
-                            color: item.enabled ? '#4ade80' : '#f87171',
-                          }}
+                          className={`status-pill ${
+                            item.enabled ? 'status-green' : 'status-red'
+                          }`}
                         >
                           {item.enabled ? 'Active' : 'Disabled'}
                         </span>
                       </td>
-                      <td style={{ ...styles.td, textAlign: 'right' }}>
-                        <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+                      <td style={{ textAlign: 'right', paddingRight: '20px' }}>
+                        <div style={{ display: 'inline-flex', gap: '6px' }}>
                           <button
+                            type="button"
+                            className="table-action"
                             onClick={() => openAdjustModal(item)}
-                            style={styles.adjustBtn}
-                            title="Adjust stock (ADD, SUBTRACT, SET)"
+                            title="Adjust stock quantity"
                           >
-                            Adjust Stock
+                            Adjust
                           </button>
                           <button
+                            type="button"
+                            className="table-action"
                             onClick={() => openHistoryModal(item)}
-                            style={styles.historyBtn}
-                            title="View audited adjustment logs"
+                            title="View audited stock adjustment history"
                           >
-                            Audit History
+                            History
                           </button>
                         </div>
                       </td>
@@ -498,151 +597,191 @@ export default function AdminInventoryPage() {
           </div>
         )}
 
-        <Pagination currentPage={page} totalPages={totalPages} onPageChange={setPage} />
-      </div>
-
-      {/* Adjust Stock Modal */}
-      {selectedProduct && (
-        <div style={styles.modalOverlay}>
-          <div style={styles.modalContent}>
-            <div style={styles.modalHeader}>
-              <h3 style={styles.modalTitle}>Adjust Stock Level</h3>
+        {/* Pagination Bar */}
+        {totalPages > 1 && (
+          <div className="pagination">
+            <span>
+              Showing {page * 10 + 1}–{Math.min((page + 1) * 10, totalElements)} of {totalElements} items
+            </span>
+            <div>
               <button
                 type="button"
-                onClick={() => setSelectedProduct(null)}
-                style={styles.modalCloseBtn}
+                disabled={page === 0}
+                onClick={() => setPage((p) => Math.max(0, p - 1))}
               >
-                ✕
+                Previous
+              </button>
+              {Array.from({ length: totalPages }, (_, i) => i)
+                .filter((i) => i === 0 || i === totalPages - 1 || Math.abs(i - page) <= 1)
+                .map((i, idx, arr) => (
+                  <React.Fragment key={i}>
+                    {idx > 0 && arr[idx - 1] !== i - 1 && (
+                      <span style={{ padding: '0 4px', color: 'var(--muted)' }}>…</span>
+                    )}
+                    <button
+                      type="button"
+                      className={i === page ? 'active' : ''}
+                      onClick={() => setPage(i)}
+                    >
+                      {i + 1}
+                    </button>
+                  </React.Fragment>
+                ))}
+              <button
+                type="button"
+                disabled={page >= totalPages - 1}
+                onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
+      </section>
+
+      {/* ── Stock Adjustment Modal ── */}
+      {selectedProduct && (
+        <div className="modal-backdrop" onClick={() => !submitting && setSelectedProduct(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <div>
+                <h2>Adjust inventory</h2>
+                <p>Review the projected stock before confirming the change.</p>
+              </div>
+              <button
+                type="button"
+                className="modal-close"
+                disabled={submitting}
+                onClick={() => setSelectedProduct(null)}
+                aria-label="Close dialog"
+              >
+                <Icon name="close" size={16} />
               </button>
             </div>
 
-            <div style={styles.productBanner}>
-              <strong style={{ color: '#f8fafc', fontSize: '1rem' }}>
-                {selectedProduct.name}
-              </strong>
-              <div style={{ fontSize: '0.85rem', color: '#94a3b8', marginTop: '0.2rem' }}>
-                Current Warehouse Stock:{' '}
-                <strong style={{ color: selectedProduct.stockQuantity === 0 ? '#f87171' : '#4ade80' }}>
-                  {selectedProduct.stockQuantity} units
-                </strong>
-              </div>
-            </div>
-
-            {formError && (
-              <div style={{ marginBottom: '1rem' }}>
-                <AlertMessage type="error" message={formError} onClose={() => setFormError('')} />
-              </div>
-            )}
-
-            <form onSubmit={handleAdjustSubmit} style={styles.form}>
-              <div style={styles.field}>
-                <label style={styles.label}>Adjustment Operation</label>
-                <select
-                  value={adjustmentType}
-                  onChange={(e) => {
-                    setAdjustmentType(e.target.value);
-                    setFormError('');
-                  }}
-                  style={styles.input}
-                >
-                  <option value="ADD">ADD (+) — Increase available stock</option>
-                  <option value="SUBTRACT">SUBTRACT (-) — Decrease stock quantity</option>
-                  <option value="SET">SET (=) — Set absolute quantity</option>
-                </select>
-              </div>
-
-              <div style={styles.field}>
-                <label style={styles.label}>Quantity Amount</label>
-                <input
-                  type="number"
-                  min="0"
-                  required
-                  value={quantity}
-                  onChange={(e) => {
-                    setQuantity(Math.max(0, parseInt(e.target.value, 10) || 0));
-                    setFormError('');
-                  }}
-                  style={styles.input}
-                />
-              </div>
-
-              {/* Real-time Projected Stock Preview */}
-              <div
-                style={{
-                  ...styles.projectionBox,
-                  borderColor: isNegativeStockError ? '#ef4444' : '#334155',
-                  backgroundColor: isNegativeStockError
-                    ? 'rgba(239, 68, 68, 0.15)'
-                    : 'rgba(30, 41, 59, 0.7)',
-                }}
-              >
-                <span style={{ fontSize: '0.85rem', color: '#cbd5e1' }}>
-                  Resulting Stock Level:
-                </span>
-                <span style={{ fontSize: '0.95rem', fontWeight: '700', color: isNegativeStockError ? '#f87171' : '#38bdf8' }}>
-                  {selectedProduct.stockQuantity} → {projectedStock} units
-                  {adjustmentType === 'ADD' && ` (+${quantity})`}
-                  {adjustmentType === 'SUBTRACT' && ` (-${quantity})`}
-                  {adjustmentType === 'SET' && ` (Set to ${quantity})`}
-                </span>
-                {isNegativeStockError && (
-                  <span style={{ color: '#f87171', fontSize: '0.78rem', marginTop: '0.2rem', display: 'block' }}>
-                    ⚠️ Reduction exceeds available stock! Stock cannot drop below zero.
-                  </span>
-                )}
-              </div>
-
-              {/* Audit Reason */}
-              <div style={styles.field}>
-                <label style={styles.label}>
-                  Audit Reason <span style={{ color: '#ef4444' }}>*</span>
-                </label>
-                <textarea
-                  required
-                  rows={2}
-                  placeholder="e.g. Received shipment, physical inventory count reconciliation..."
-                  value={reason}
-                  onChange={(e) => {
-                    setReason(e.target.value);
-                    setFormError('');
-                  }}
-                  style={styles.input}
-                />
-                {/* Reason Suggestions */}
-                <div style={{ marginTop: '0.4rem', display: 'flex', flexWrap: 'wrap', gap: '0.3rem' }}>
-                  {REASON_SUGGESTIONS.map((sug, i) => (
-                    <button
-                      key={i}
-                      type="button"
-                      onClick={() => setReason(sug)}
-                      style={styles.suggestionPill}
-                    >
-                      + {sug}
-                    </button>
-                  ))}
+            <form onSubmit={handleAdjustSubmit}>
+              <div className="modal-body">
+                {/* Product Name Header */}
+                <div style={{ marginBottom: '16px' }}>
+                  <strong style={{ color: 'var(--ink)', fontSize: '15px', display: 'block' }}>
+                    {selectedProduct.name}
+                  </strong>
+                  <small style={{ color: 'var(--muted)', fontSize: '11px' }}>
+                    {selectedProduct.category?.name || 'Catalog product'} · Current inventory:{' '}
+                    <b>{selectedProduct.stockQuantity} units</b>
+                  </small>
                 </div>
+
+                {/* Projected Result Preview */}
+                <div className="inventory-summary">
+                  <span>
+                    Current quantity
+                    <b>{selectedProduct.stockQuantity} units</b>
+                  </span>
+                  <Icon name="arrow" size={20} />
+                  <span>
+                    Resulting quantity
+                    <b style={isNegativeStockError ? { color: 'var(--danger)' } : {}}>
+                      {projectedStock} units
+                    </b>
+                  </span>
+                </div>
+
+                {formError && (
+                  <div className="inline-error" style={{ marginBottom: '16px' }}>
+                    <b>Validation error</b>
+                    <span>{formError}</span>
+                  </div>
+                )}
+
+                {/* Form Grid */}
+                <div className="form-grid">
+                  <label>
+                    <span>Adjustment type *</span>
+                    <select
+                      value={adjustmentType}
+                      onChange={(e) => {
+                        setAdjustmentType(e.target.value);
+                        setFormError('');
+                      }}
+                    >
+                      <option value="ADD">ADD (+) — Increase available stock</option>
+                      <option value="SUBTRACT">SUBTRACT (-) — Decrease stock quantity</option>
+                      <option value="SET">SET (=) — Set absolute quantity</option>
+                    </select>
+                  </label>
+
+                  <label>
+                    <span>Quantity amount *</span>
+                    <input
+                      type="number"
+                      min="0"
+                      required
+                      value={quantity}
+                      onChange={(e) => {
+                        setQuantity(Math.max(0, parseInt(e.target.value, 10) || 0));
+                        setFormError('');
+                      }}
+                    />
+                  </label>
+
+                  <label className="span-2">
+                    <span>Audit reason *</span>
+                    <textarea
+                      required
+                      rows={2}
+                      placeholder="Explain the operational reason for this inventory adjustment..."
+                      value={reason}
+                      onChange={(e) => {
+                        setReason(e.target.value);
+                        setFormError('');
+                      }}
+                    />
+                  </label>
+
+                  {/* Suggestion Pills */}
+                  <div className="span-2" style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                    <small style={{ color: 'var(--muted)', width: '100%', fontSize: '11px' }}>Quick audit reasons:</small>
+                    {REASON_SUGGESTIONS.map((sug, i) => (
+                      <button
+                        key={i}
+                        type="button"
+                        className="suggestion-pill"
+                        onClick={() => setReason(sug)}
+                      >
+                        + {sug}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <p className="modal-copy">
+                  The UI prevents negative resulting quantities; the backend remains the source of truth for stock validation.
+                </p>
               </div>
 
-              {/* Action Buttons */}
-              <div style={{ display: 'flex', gap: '0.8rem', justifyContent: 'flex-end', marginTop: '1.2rem' }}>
+              <div className="modal-actions">
                 <button
                   type="button"
-                  onClick={() => setSelectedProduct(null)}
-                  style={styles.cancelBtn}
+                  className="btn btn-secondary"
                   disabled={submitting}
+                  onClick={() => setSelectedProduct(null)}
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
+                  className="btn btn-primary"
                   disabled={submitting || isNegativeStockError}
-                  style={{
-                    ...styles.primaryBtn,
-                    opacity: isNegativeStockError || submitting ? 0.6 : 1,
-                    cursor: isNegativeStockError || submitting ? 'not-allowed' : 'pointer',
-                  }}
                 >
-                  {submitting ? 'Applying Adjustment...' : 'Confirm Stock Adjustment'}
+                  {submitting ? (
+                    <>
+                      <span className="spinner" style={{ marginRight: '6px' }} />
+                      Updating…
+                    </>
+                  ) : (
+                    'Confirm adjustment'
+                  )}
                 </button>
               </div>
             </form>
@@ -650,91 +789,83 @@ export default function AdminInventoryPage() {
         </div>
       )}
 
-      {/* Audit History Modal */}
+      {/* ── Audit History Modal ── */}
       {historyProduct && (
-        <div style={styles.modalOverlay}>
-          <div style={{ ...styles.modalContent, maxWidth: '640px' }}>
-            <div style={styles.modalHeader}>
+        <div className="modal-backdrop" onClick={() => setHistoryProduct(null)}>
+          <div className="modal" style={{ maxWidth: '600px' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
               <div>
-                <h3 style={styles.modalTitle}>Stock Adjustment Audit History</h3>
-                <span style={{ fontSize: '0.85rem', color: '#94a3b8' }}>
-                  {historyProduct.name}
-                </span>
+                <h2>Stock adjustment history</h2>
+                <p>Audited records for &ldquo;{historyProduct.name}&rdquo;</p>
               </div>
               <button
                 type="button"
+                className="modal-close"
                 onClick={() => setHistoryProduct(null)}
-                style={styles.modalCloseBtn}
+                aria-label="Close dialog"
               >
-                ✕
+                <Icon name="close" size={16} />
               </button>
             </div>
 
-            {historyLoading ? (
-              <LoadingSpinner message="Fetching audited adjustment logs..." />
-            ) : historyItems.length === 0 ? (
-              <div style={{ padding: '2rem', textAlign: 'center', color: '#94a3b8' }}>
-                No manual adjustment history found for this product.
-              </div>
-            ) : (
-              <div style={styles.historyList}>
-                {historyItems.map((adj) => {
-                  const delta = adj.quantityDelta != null ? adj.quantityDelta : 0;
-                  const deltaFormatted = delta >= 0 ? `+${delta}` : `${delta}`;
+            <div className="modal-body" style={{ padding: '0' }}>
+              {historyLoading ? (
+                <div style={{ padding: '40px 0' }}>
+                  <LoadingSpinner message="Fetching audited adjustment logs..." />
+                </div>
+              ) : historyItems.length === 0 ? (
+                <div style={{ padding: '48px 24px', textAlign: 'center', color: 'var(--muted)', fontSize: '13px' }}>
+                  No manual adjustment history found for this product.
+                </div>
+              ) : (
+                <div className="inventory-history-list">
+                  {historyItems.map((adj) => {
+                    const delta = adj.quantityDelta != null ? adj.quantityDelta : 0;
+                    const deltaFormatted = delta >= 0 ? `+${delta}` : `${delta}`;
 
-                  return (
-                    <div key={adj.id} style={styles.historyItem}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                        <div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    return (
+                      <div key={adj.id} className="inventory-history-item">
+                        <div className="inventory-history-top">
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                             <span
-                              style={{
-                                ...styles.adjBadge,
-                                backgroundColor:
-                                  adj.adjustmentType === 'ADD'
-                                    ? 'rgba(34, 197, 94, 0.2)'
-                                    : adj.adjustmentType === 'SUBTRACT'
-                                    ? 'rgba(239, 68, 68, 0.2)'
-                                    : 'rgba(99, 102, 241, 0.2)',
-                                color:
-                                  adj.adjustmentType === 'ADD'
-                                    ? '#4ade80'
-                                    : adj.adjustmentType === 'SUBTRACT'
-                                    ? '#f87171'
-                                    : '#a5b4fc',
-                              }}
+                              className={`status-pill ${
+                                adj.adjustmentType === 'ADD'
+                                  ? 'status-green'
+                                  : adj.adjustmentType === 'SUBTRACT'
+                                  ? 'status-red'
+                                  : 'status-blue'
+                              }`}
                             >
                               {adj.adjustmentType} ({deltaFormatted})
                             </span>
-                            <strong style={{ color: '#f8fafc', fontSize: '0.85rem' }}>
-                              Prev: {adj.previousStock} → New: {adj.newStock}
+                            <strong style={{ color: 'var(--ink)' }}>
+                              {adj.previousQuantity} → {adj.newQuantity} units
                             </strong>
                           </div>
-
-                          <div style={{ color: '#cbd5e1', fontSize: '0.82rem', marginTop: '0.4rem' }}>
-                            &ldquo;{adj.reason}&rdquo;
-                          </div>
-
-                          <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '0.25rem' }}>
-                            Admin ID: {adj.performedByUserId}
-                          </div>
+                          <span className="inventory-history-meta">
+                            {formatDate(adj.createdAt)}
+                          </span>
                         </div>
 
-                        <span style={{ fontSize: '0.75rem', color: '#94a3b8', whiteSpace: 'nowrap' }}>
-                          {new Date(adj.createdAt).toLocaleString()}
+                        <div className="inventory-history-reason">
+                          &ldquo;{adj.reason}&rdquo;
+                        </div>
+
+                        <span className="inventory-history-meta">
+                          Performed by: <b>{adj.performedByEmail || 'Administrator'}</b>
                         </span>
                       </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+                    );
+                  })}
+                </div>
+              )}
+            </div>
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1.2rem' }}>
+            <div className="modal-actions">
               <button
                 type="button"
+                className="btn btn-secondary"
                 onClick={() => setHistoryProduct(null)}
-                style={styles.secBtn}
               >
                 Close
               </button>
@@ -744,334 +875,6 @@ export default function AdminInventoryPage() {
       )}
     </div>
   );
-}
-
-const styles = {
-  container: {
-    maxWidth: '1280px',
-    margin: '0 auto',
-    padding: '2rem 1.5rem',
-  },
-  header: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: '1.5rem',
-    gap: '1rem',
-    flexWrap: 'wrap',
-  },
-  title: {
-    color: '#f8fafc',
-    fontSize: '1.8rem',
-    fontWeight: '800',
-    margin: 0,
-  },
-  subtitle: {
-    color: '#94a3b8',
-    fontSize: '0.9rem',
-    marginTop: '0.3rem',
-    marginBottom: 0,
-  },
-  card: {
-    backgroundColor: '#0f172a',
-    border: '1px solid #1e293b',
-    borderRadius: '12px',
-    padding: '1.25rem',
-    marginBottom: '1.5rem',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '1rem',
-  },
-  filterGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
-    gap: '1rem',
-    alignItems: 'flex-end',
-  },
-  filterCol: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '0.35rem',
-  },
-  filterLabel: {
-    color: '#94a3b8',
-    fontSize: '0.82rem',
-    fontWeight: '600',
-  },
-  inputWrap: {
-    display: 'flex',
-    alignItems: 'center',
-    backgroundColor: '#1e293b',
-    border: '1px solid #334155',
-    borderRadius: '6px',
-    padding: '0 0.6rem',
-  },
-  innerInput: {
-    flex: 1,
-    padding: '0.6rem 0.5rem',
-    backgroundColor: 'transparent',
-    border: 'none',
-    color: '#f8fafc',
-    fontSize: '0.88rem',
-    outline: 'none',
-  },
-  clearBtn: {
-    background: 'none',
-    border: 'none',
-    color: '#94a3b8',
-    cursor: 'pointer',
-    padding: '0.2rem',
-  },
-  input: {
-    padding: '0.6rem 0.8rem',
-    backgroundColor: '#1e293b',
-    border: '1px solid #334155',
-    borderRadius: '6px',
-    color: '#f8fafc',
-    fontSize: '0.88rem',
-  },
-  select: {
-    padding: '0.6rem 0.8rem',
-    backgroundColor: '#1e293b',
-    border: '1px solid #334155',
-    borderRadius: '6px',
-    color: '#f8fafc',
-    fontSize: '0.88rem',
-  },
-  secBtn: {
-    padding: '0.6rem 1rem',
-    backgroundColor: '#1e293b',
-    color: '#e2e8f0',
-    border: '1px solid #334155',
-    borderRadius: '6px',
-    fontWeight: '600',
-    fontSize: '0.85rem',
-    cursor: 'pointer',
-  },
-  primaryBtn: {
-    padding: '0.65rem 1.2rem',
-    backgroundColor: '#6366f1',
-    color: '#ffffff',
-    border: 'none',
-    borderRadius: '8px',
-    fontWeight: '600',
-    cursor: 'pointer',
-  },
-  statusTabsRow: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '0.8rem',
-    flexWrap: 'wrap',
-    paddingTop: '0.5rem',
-    borderTop: '1px solid #1e293b',
-  },
-  statusTabsGroup: {
-    display: 'flex',
-    backgroundColor: '#020617',
-    border: '1px solid #334155',
-    borderRadius: '6px',
-    overflow: 'hidden',
-    flexWrap: 'wrap',
-  },
-  tabBtn: {
-    border: 'none',
-    padding: '0.5rem 0.9rem',
-    fontSize: '0.8rem',
-    fontWeight: '600',
-    cursor: 'pointer',
-  },
-  tableCard: {
-    backgroundColor: '#0f172a',
-    border: '1px solid #1e293b',
-    borderRadius: '12px',
-    padding: '1.25rem',
-    overflowX: 'auto',
-  },
-  table: {
-    width: '100%',
-    borderCollapse: 'collapse',
-    textAlign: 'left',
-  },
-  th: {
-    color: '#94a3b8',
-    fontSize: '0.8rem',
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    padding: '0.75rem',
-    borderBottom: '1px solid #1e293b',
-  },
-  tr: {
-    borderBottom: '1px solid #1e293b',
-  },
-  td: {
-    padding: '0.9rem 0.75rem',
-    color: '#cbd5e1',
-    fontSize: '0.88rem',
-    verticalAlign: 'middle',
-  },
-  prodIcon: {
-    width: '36px',
-    height: '36px',
-    borderRadius: '6px',
-    backgroundColor: '#1e293b',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontSize: '1.1rem',
-  },
-  categoryBadge: {
-    backgroundColor: '#1e293b',
-    color: '#cbd5e1',
-    padding: '3px 8px',
-    borderRadius: '4px',
-    fontSize: '0.78rem',
-    border: '1px solid #334155',
-  },
-  stockPill: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    padding: '3px 10px',
-    borderRadius: '12px',
-    fontSize: '0.8rem',
-    fontWeight: '700',
-    border: '1px solid transparent',
-  },
-  statusBadge: {
-    padding: '3px 8px',
-    borderRadius: '4px',
-    fontSize: '0.75rem',
-    fontWeight: '700',
-  },
-  adjustBtn: {
-    backgroundColor: 'rgba(99, 102, 241, 0.15)',
-    border: '1px solid rgba(99, 102, 241, 0.4)',
-    color: '#818cf8',
-    padding: '4px 10px',
-    borderRadius: '6px',
-    cursor: 'pointer',
-    fontWeight: '600',
-    fontSize: '0.8rem',
-  },
-  historyBtn: {
-    backgroundColor: '#1e293b',
-    border: '1px solid #334155',
-    color: '#cbd5e1',
-    padding: '4px 10px',
-    borderRadius: '6px',
-    cursor: 'pointer',
-    fontWeight: '600',
-    fontSize: '0.8rem',
-  },
-  emptyState: {
-    padding: '3rem 1.5rem',
-    textAlign: 'center',
-  },
-  modalOverlay: {
-    position: 'fixed',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.75)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 200,
-    padding: '1rem',
-  },
-  modalContent: {
-    backgroundColor: '#0f172a',
-    border: '1px solid #1e293b',
-    borderRadius: '12px',
-    padding: '1.75rem',
-    width: '100%',
-    maxWidth: '500px',
-    maxHeight: '90vh',
-    overflowY: 'auto',
-  },
-  modalHeader: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: '1rem',
-  },
-  modalTitle: {
-    color: '#f8fafc',
-    fontSize: '1.25rem',
-    fontWeight: '700',
-    margin: 0,
-  },
-  modalCloseBtn: {
-    background: 'none',
-    border: 'none',
-    color: '#94a3b8',
-    fontSize: '1.1rem',
-    cursor: 'pointer',
-  },
-  productBanner: {
-    backgroundColor: '#1e293b',
-    border: '1px solid #334155',
-    borderRadius: '8px',
-    padding: '0.85rem',
-    marginBottom: '1.2rem',
-  },
-  form: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '0.9rem',
-  },
-  field: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '0.3rem',
-  },
-  label: {
-    color: '#cbd5e1',
-    fontSize: '0.85rem',
-    fontWeight: '600',
-  },
-  projectionBox: {
-    border: '1px solid #334155',
-    borderRadius: '8px',
-    padding: '0.75rem 0.9rem',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '0.3rem',
-  },
-  suggestionPill: {
-    background: '#1e293b',
-    border: '1px solid #334155',
-    color: '#94a3b8',
-    borderRadius: '10px',
-    padding: '2px 7px',
-    fontSize: '0.72rem',
-    cursor: 'pointer',
-  },
-  cancelBtn: {
-    padding: '0.65rem 1.2rem',
-    backgroundColor: 'transparent',
-    color: '#94a3b8',
-    border: '1px solid #475569',
-    borderRadius: '6px',
-    cursor: 'pointer',
-  },
-  historyList: {
-    maxHeight: '380px',
-    overflowY: 'auto',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '0.6rem',
-  },
-  historyItem: {
-    backgroundColor: '#1e293b',
-    border: '1px solid #334155',
-    borderRadius: '8px',
-    padding: '0.75rem',
-  },
-  adjBadge: {
-    padding: '2px 7px',
-    borderRadius: '4px',
-    fontSize: '0.75rem',
-    fontWeight: '700',
-  },
 };
+
+export default AdminInventoryPage;

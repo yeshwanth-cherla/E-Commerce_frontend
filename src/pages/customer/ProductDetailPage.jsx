@@ -3,13 +3,22 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { apiClient } from '../../services/apiClient';
 import { useAuth } from '../../context/AuthContext';
 import { useCart } from '../../context/CartContext';
-import { LoadingSpinner } from '../../components/LoadingSpinner';
-import { Pagination } from '../../components/Pagination';
-import { AlertMessage } from '../../components/AlertMessage';
 import { useProductRealtime } from '../../hooks/useProductRealtime';
+import { Icon } from '../../components/Icon';
+import { ProductImage } from '../../components/ProductImage';
+import { StockBadge } from '../../components/StockBadge';
+
+const formatINR = (value) => {
+  const num = Number(value) || 0;
+  return new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    maximumFractionDigits: 0,
+  }).format(num);
+};
 
 export const ProductDetailPage = () => {
-  const { id } = useParams(); // route is /products/:id
+  const { id } = useParams();
   const navigate = useNavigate();
   const { isAuthenticated, user } = useAuth();
   const { addToCart } = useCart();
@@ -19,7 +28,8 @@ export const ProductDetailPage = () => {
   const [quantity, setQuantity] = useState(1);
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState(null);
-  const [toastMessage, setToastMessage] = useState('');
+  const [toastNotice, setToastNotice] = useState('');
+  const [toastType, setToastType] = useState('success');
 
   // Reviews state
   const [reviews, setReviews] = useState([]);
@@ -33,15 +43,25 @@ export const ProductDetailPage = () => {
   const [submittingReview, setSubmittingReview] = useState(false);
   const [editingReviewId, setEditingReviewId] = useState(null);
 
+  const showToast = (message, type = 'success', duration = 3000) => {
+    setToastNotice(message);
+    setToastType(type);
+    setTimeout(() => setToastNotice(''), duration);
+  };
+
   const loadProduct = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const response = await apiClient.get(`/api/products/${id}`);
       setProduct(response.data);
+      // Ensure quantity does not exceed updated stock
+      if (response.data?.stockQuantity != null) {
+        setQuantity((q) => Math.max(1, Math.min(q, response.data.stockQuantity || 1)));
+      }
     } catch (err) {
       console.error('Error fetching product detail:', err);
-      setError(err.response?.data?.message || 'Product not found');
+      setError(err.response?.data?.message || 'Product not found or currently unavailable.');
     } finally {
       setLoading(false);
     }
@@ -71,39 +91,42 @@ export const ProductDetailPage = () => {
   useProductRealtime({
     productId: id,
     onUpdate: (newRecord) => {
-      // Immediate optimistic update for zero-latency UI change
       setProduct((prev) => {
         if (!prev) return prev;
+        const newStock = newRecord.stock_quantity != null ? Number(newRecord.stock_quantity) : prev.stockQuantity;
+        if (newStock < quantity) {
+          setQuantity(Math.max(1, newStock || 1));
+        }
         return {
           ...prev,
           name: newRecord.name ?? prev.name,
           price: newRecord.price != null ? Number(newRecord.price) : prev.price,
-          stockQuantity: newRecord.stock_quantity != null ? Number(newRecord.stock_quantity) : prev.stockQuantity,
+          stockQuantity: newStock,
           description: newRecord.description ?? prev.description,
           imageUrl: newRecord.image_url ?? prev.imageUrl,
           enabled: newRecord.enabled ?? prev.enabled,
         };
       });
-      // Backend refetch to guarantee relations (category, rating) stay synced
       loadProduct();
     },
     onDelete: () => {
-      setError('This product is no longer available.');
+      setError('This product is no longer available in the catalog.');
     },
   });
 
   const handleAddToCart = async () => {
     if (!isAuthenticated) {
-      navigate('/login');
+      navigate('/login', { state: { from: { pathname: `/products/${id}` } } });
       return;
     }
+    if (!product || product.stockQuantity <= 0) return;
+
     setAdding(true);
     try {
       await addToCart(id, quantity);
-      setToastMessage(`Added ${quantity} item(s) to your cart!`);
-      setTimeout(() => setToastMessage(''), 3000);
+      showToast(`${quantity} × ${product.name} added to cart`, 'success');
     } catch (err) {
-      alert(err.message || 'Failed to add item to cart');
+      showToast(err.message || 'Failed to add item to cart', 'error');
     } finally {
       setAdding(false);
     }
@@ -112,7 +135,7 @@ export const ProductDetailPage = () => {
   const handleReviewSubmit = async (e) => {
     e.preventDefault();
     if (!isAuthenticated) {
-      navigate('/login');
+      navigate('/login', { state: { from: { pathname: `/products/${id}` } } });
       return;
     }
     setSubmittingReview(true);
@@ -122,189 +145,261 @@ export const ProductDetailPage = () => {
           rating: Number(rating),
           comment,
         });
-        setToastMessage('Review updated successfully!');
+        showToast('Your review was updated successfully!', 'success');
       } else {
         await apiClient.post(`/api/products/${id}/reviews`, {
           rating: Number(rating),
           comment,
         });
-        setToastMessage('Review submitted successfully!');
+        showToast('Thank you! Your review has been posted.', 'success');
       }
       setComment('');
       setRating(5);
       setEditingReviewId(null);
       await loadProduct();
       await loadReviews();
-      setTimeout(() => setToastMessage(''), 3000);
     } catch (err) {
-      alert(err.response?.data?.message || 'Failed to submit review');
+      showToast(err.response?.data?.message || 'Failed to submit review', 'error');
     } finally {
       setSubmittingReview(false);
     }
   };
 
-  const handleEditClick = (review) => {
-    setEditingReviewId(review.id);
-    setRating(review.rating);
-    setComment(review.comment);
+  const handleEditClick = (rev) => {
+    setEditingReviewId(rev.id);
+    setRating(rev.rating);
+    setComment(rev.comment);
+    document.getElementById('review-form')?.scrollIntoView({ behavior: 'smooth' });
   };
 
   const handleDeleteReview = async (reviewId) => {
-    if (!window.confirm('Are you sure you want to delete your review?')) return;
+    if (!window.confirm('Are you sure you want to remove your review?')) return;
     try {
       await apiClient.delete(`/api/reviews/${reviewId}`);
-      setToastMessage('Review deleted');
+      showToast('Review removed', 'success');
       await loadProduct();
       await loadReviews();
-      setTimeout(() => setToastMessage(''), 3000);
     } catch (err) {
-      alert(err.response?.data?.message || 'Failed to delete review');
+      showToast(err.response?.data?.message || 'Failed to delete review', 'error');
     }
   };
 
-  if (loading) return <LoadingSpinner message="Loading product details..." />;
-  if (error || !product) return <AlertMessage type="error" message={error || 'Product not found'} />;
-
-  return (
-    <div style={styles.container}>
-      {toastMessage && (
-        <AlertMessage type="success" message={toastMessage} onClose={() => setToastMessage('')} />
-      )}
-
-      {/* Main Detail Grid */}
-      <div style={styles.detailGrid}>
-        <div style={styles.imageColumn}>
-          {product.imageUrl ? (
-            <img
-              src={product.imageUrl}
-              alt={product.name}
-              style={styles.mainImage}
-              onError={(e) => {
-                e.currentTarget.style.display = 'none';
-                const placeholder = e.currentTarget.nextElementSibling;
-                if (placeholder) placeholder.style.display = 'flex';
-              }}
-            />
-          ) : null}
-          <div
-            style={{
-              ...styles.placeholderImage,
-              display: product.imageUrl ? 'none' : 'flex',
-            }}
-          >
-            📦
+  // Loading state
+  if (loading) {
+    return (
+      <main className="shell page">
+        <div className="breadcrumbs">
+          <Link to="/">Home</Link>
+          <Icon name="chevron" size={13} />
+          <span>Catalog</span>
+          <Icon name="chevron" size={13} />
+          <span>Loading…</span>
+        </div>
+        <div className="product-detail" style={{ opacity: 0.6 }}>
+          <div className="detail-image" style={{ background: '#eef0f5' }} />
+          <div className="detail-info">
+            <div style={{ width: '30%', height: '14px', background: '#e5e7eb', borderRadius: '4px', marginBottom: '14px' }} />
+            <div style={{ width: '80%', height: '36px', background: '#e5e7eb', borderRadius: '6px', marginBottom: '16px' }} />
+            <div style={{ width: '40%', height: '28px', background: '#e5e7eb', borderRadius: '6px', marginBottom: '24px' }} />
+            <div style={{ width: '100%', height: '80px', background: '#e5e7eb', borderRadius: '6px' }} />
           </div>
         </div>
+      </main>
+    );
+  }
 
-        <div style={styles.infoColumn}>
+  // Not Found / Error state
+  if (error || !product) {
+    return (
+      <main className="shell page">
+        <div className="breadcrumbs">
+          <Link to="/">Home</Link>
+          <Icon name="chevron" size={13} />
+          <span>Catalog</span>
+        </div>
+        <div className="empty-state large" style={{ margin: '40px auto' }}>
+          <span className="empty-icon" style={{ background: 'var(--danger-soft)', color: 'var(--danger)' }}>
+            <Icon name="box" size={30} />
+          </span>
+          <h1>Product unavailable</h1>
+          <p>{error || 'The product you are looking for does not exist or may have been removed.'}</p>
+          <Link to="/" className="btn btn-primary">
+            Browse all products <Icon name="arrow" size={16} />
+          </Link>
+        </div>
+      </main>
+    );
+  }
+
+  return (
+    <main className="shell page">
+      {/* Aster Breadcrumbs */}
+      <nav className="breadcrumbs" aria-label="Breadcrumb navigation">
+        <Link to="/">Home</Link>
+        <Icon name="chevron" size={13} />
+        {product.category && (
+          <>
+            <Link to={`/?categoryId=${product.category.id}`}>{product.category.name}</Link>
+            <Icon name="chevron" size={13} />
+          </>
+        )}
+        <b>{product.name}</b>
+      </nav>
+
+      {/* Main Aster Product Detail Layout */}
+      <section className="product-detail">
+        {/* Product Media Column */}
+        <div className="detail-image">
+          <ProductImage src={product.imageUrl} alt={product.name} />
+          {product.stockQuantity <= 0 && <span className="image-badge">Unavailable</span>}
+        </div>
+
+        {/* Product Information Column */}
+        <div className="detail-info">
           {product.category && (
             <Link
               to={`/?categoryId=${product.category.id}`}
-              style={{ ...styles.categoryBadge, textDecoration: 'none' }}
-              title={`View products in ${product.category.name}`}
+              className="kicker"
+              style={{ textDecoration: 'none', display: 'inline-block' }}
+              title={`Browse more in ${product.category.name}`}
             >
               {product.category.name}
             </Link>
           )}
-          <h1 style={styles.productTitle}>{product.name}</h1>
 
-          <div style={styles.ratingSummary}>
-            <span style={styles.ratingStars}>
-              {product.averageRating ? `⭐ ${product.averageRating} / 5` : 'No ratings yet'}
+          <h1>{product.name}</h1>
+
+          {/* Rating Summary */}
+          <div className="detail-rating">
+            <span className="stars">
+              {product.averageRating ? `★ ${product.averageRating.toFixed(1)} / 5.0` : '★ No ratings yet'}
             </span>
+            {reviews.length > 0 && (
+              <span>
+                ({reviews.length} {reviews.length === 1 ? 'customer review' : 'customer reviews'})
+              </span>
+            )}
           </div>
 
-          <div style={styles.priceRow}>
-            <span style={styles.price}>₹{Number(product.price).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-            <span
-              style={{
-                ...styles.stockStatus,
-                color: product.stockQuantity > 0 ? '#4ade80' : '#f87171',
-              }}
-            >
-              {product.stockQuantity > 0
-                ? `In Stock (${product.stockQuantity} available)`
-                : 'Out of Stock'}
-            </span>
-          </div>
+          <p className="detail-description">{product.description}</p>
 
-          <p style={styles.description}>{product.description}</p>
+          <strong className="detail-price">{formatINR(product.price)}</strong>
 
-          {/* Action Row */}
-          {product.stockQuantity > 0 && (
-            <div style={styles.actionRow}>
-              <div style={styles.quantitySelector}>
-                <label style={styles.qtyLabel}>Qty:</label>
-                <select
-                  value={quantity}
-                  onChange={(e) => setQuantity(Number(e.target.value))}
-                  style={styles.select}
+          <StockBadge stock={product.stockQuantity} />
+
+          {/* Aster Purchase Panel */}
+          <div className="purchase-panel">
+            <div>
+              <label className="field-label" htmlFor="product-qty-select">Quantity</label>
+              <div className="quantity" id="product-qty-select">
+                <button
+                  type="button"
+                  onClick={() => setQuantity((q) => Math.max(1, q - 1))}
+                  disabled={quantity <= 1 || product.stockQuantity <= 0}
+                  aria-label="Decrease quantity"
                 >
-                  {[...Array(Math.min(product.stockQuantity, 10))].map((_, i) => (
-                    <option key={i + 1} value={i + 1}>
-                      {i + 1}
-                    </option>
-                  ))}
-                </select>
+                  <Icon name="minus" size={17} />
+                </button>
+                <span>{product.stockQuantity > 0 ? quantity : 0}</span>
+                <button
+                  type="button"
+                  onClick={() => setQuantity((q) => Math.min(product.stockQuantity, q + 1))}
+                  disabled={quantity >= product.stockQuantity || product.stockQuantity <= 0}
+                  aria-label="Increase quantity"
+                >
+                  <Icon name="plus" size={17} />
+                </button>
               </div>
-
-              <button
-                onClick={handleAddToCart}
-                disabled={adding}
-                style={styles.addToCartBtn}
-              >
-                {adding ? 'Adding...' : '🛒 Add to Cart'}
-              </button>
             </div>
-          )}
+
+            <button
+              type="button"
+              className="btn btn-primary detail-add"
+              disabled={product.stockQuantity <= 0 || adding}
+              onClick={handleAddToCart}
+            >
+              <Icon name="bag" size={19} />
+              {adding
+                ? 'Adding to cart…'
+                : product.stockQuantity <= 0
+                ? 'Currently unavailable'
+                : 'Add to cart'}
+            </button>
+          </div>
+
+          {/* Trust Highlights */}
+          <div className="info-list">
+            <div>
+              <Icon name="check" size={17} />
+              <span>
+                <b>Live availability</b>
+                <small>Stock status updates in real time with backend verification.</small>
+              </span>
+            </div>
+            <div>
+              <Icon name="check" size={17} />
+              <span>
+                <b>Cash on Delivery</b>
+                <small>Pay in cash upon delivery. No upfront payment required.</small>
+              </span>
+            </div>
+          </div>
         </div>
-      </div>
+      </section>
 
-      {/* Reviews Section */}
-      <div style={styles.reviewsSection}>
-        <h2 style={styles.sectionTitle}>Customer Reviews</h2>
+      {/* Aster Product Overview Block */}
+      <section className="description-block">
+        <span className="kicker">Product overview</span>
+        <h2>Designed for the everyday</h2>
+        <p>
+          {product.description ||
+            'Quality everyday product thoughtfully sourced and stocked in the Aster catalog.'}
+        </p>
+      </section>
 
-        {/* Submit / Edit Review Form */}
-        {isAuthenticated && (
-          <form onSubmit={handleReviewSubmit} style={styles.reviewForm}>
-            <h3 style={styles.formTitle}>
-              {editingReviewId ? 'Edit Your Review' : 'Write a Review'}
-            </h3>
+      {/* Customer Reviews Section */}
+      <section className="reviews-section" id="reviews">
+        <h2>Customer reviews</h2>
 
-            <div style={styles.formGroup}>
-              <label style={styles.label}>Rating:</label>
+        {/* Review Submission / Editing Form */}
+        {isAuthenticated ? (
+          <form onSubmit={handleReviewSubmit} className="review-form-card" id="review-form">
+            <h3>{editingReviewId ? 'Edit your review' : 'Write a customer review'}</h3>
+
+            <div className="review-form-group">
+              <label htmlFor="review-rating-select">Your rating</label>
               <select
+                id="review-rating-select"
                 value={rating}
                 onChange={(e) => setRating(Number(e.target.value))}
-                style={styles.select}
               >
-                <option value={5}>⭐⭐⭐⭐⭐ (5/5 Excellent)</option>
-                <option value={4}>⭐⭐⭐⭐ (4/5 Good)</option>
-                <option value={3}>⭐⭐⭐ (3/5 Average)</option>
-                <option value={2}>⭐⭐ (2/5 Poor)</option>
-                <option value={1}>⭐ (1/5 Terrible)</option>
+                <option value={5}>⭐⭐⭐⭐⭐ (5 / 5 - Excellent)</option>
+                <option value={4}>⭐⭐⭐⭐ (4 / 5 - Good)</option>
+                <option value={3}>⭐⭐⭐ (3 / 5 - Average)</option>
+                <option value={2}>⭐⭐ (2 / 5 - Poor)</option>
+                <option value={1}>⭐ (1 / 5 - Terrible)</option>
               </select>
             </div>
 
-            <div style={styles.formGroup}>
-              <label style={styles.label}>Review Comment:</label>
+            <div className="review-form-group">
+              <label htmlFor="review-comment-textarea">Your comments</label>
               <textarea
+                id="review-comment-textarea"
                 required
                 rows={3}
                 value={comment}
                 onChange={(e) => setComment(e.target.value)}
-                placeholder="Share your experience with this product..."
-                style={styles.textarea}
+                placeholder="Share your experience with this item..."
               />
             </div>
 
-            <div style={{ display: 'flex', gap: '0.8rem' }}>
-              <button type="submit" disabled={submittingReview} style={styles.submitReviewBtn}>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button type="submit" disabled={submittingReview} className="btn btn-primary">
                 {submittingReview
-                  ? 'Submitting...'
+                  ? 'Submitting…'
                   : editingReviewId
-                  ? 'Update Review'
-                  : 'Post Review'}
+                  ? 'Update review'
+                  : 'Post review'}
               </button>
               {editingReviewId && (
                 <button
@@ -314,277 +409,166 @@ export const ProductDetailPage = () => {
                     setComment('');
                     setRating(5);
                   }}
-                  style={styles.cancelBtn}
+                  className="btn btn-secondary"
                 >
                   Cancel
                 </button>
               )}
             </div>
           </form>
+        ) : (
+          <div
+            style={{
+              padding: '16px 20px',
+              background: 'white',
+              border: '1px solid var(--line)',
+              borderRadius: '8px',
+              marginBottom: '24px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '16px',
+            }}
+          >
+            <span style={{ fontSize: '13px', color: 'var(--muted)' }}>
+              Sign in with your account to write a product review.
+            </span>
+            <Link
+              to="/login"
+              state={{ from: { pathname: `/products/${id}` } }}
+              className="btn btn-secondary"
+              style={{ minHeight: '36px', padding: '0 14px', fontSize: '12px' }}
+            >
+              Sign in to review
+            </Link>
+          </div>
         )}
 
-        {/* Reviews List */}
+        {/* Customer Reviews List */}
         {reviewLoading ? (
-          <LoadingSpinner message="Loading customer reviews..." />
+          <div style={{ padding: '24px', textAlign: 'center', color: 'var(--muted)', fontSize: '13px' }}>
+            Loading customer reviews…
+          </div>
         ) : reviews.length === 0 ? (
-          <p style={{ color: '#94a3b8', fontStyle: 'italic', marginTop: '1rem' }}>
-            No reviews yet. Be the first to review this product!
+          <p style={{ color: 'var(--muted)', fontStyle: 'italic', margin: '16px 0 32px' }}>
+            No reviews yet. Be the first customer to share your thoughts on this item!
           </p>
         ) : (
-          <div style={styles.reviewList}>
+          <div>
             {reviews.map((rev) => {
               const isOwner = user && user.id === rev.userId;
               return (
-                <div key={rev.id} style={styles.reviewCard}>
-                  <div style={styles.reviewHeader}>
+                <article key={rev.id} className="review-card">
+                  <header className="review-header">
                     <div>
-                      <strong style={{ color: '#f8fafc' }}>{rev.userName || 'Customer'}</strong>
-                      <span style={{ color: '#fbbf24', marginLeft: '0.75rem' }}>
+                      <strong className="review-author">{rev.userName || 'Customer'}</strong>
+                      <span className="review-stars">
                         {'★'.repeat(rev.rating)}
                         {'☆'.repeat(5 - rev.rating)}
                       </span>
                     </div>
                     {isOwner && (
-                      <div style={{ display: 'flex', gap: '0.5rem' }}>
-                        <button onClick={() => handleEditClick(rev)} style={styles.editBtn}>
+                      <div className="review-actions">
+                        <button
+                          type="button"
+                          onClick={() => handleEditClick(rev)}
+                          className="review-action-btn"
+                        >
                           Edit
                         </button>
-                        <button onClick={() => handleDeleteReview(rev.id)} style={styles.deleteBtn}>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteReview(rev.id)}
+                          className="review-action-btn delete"
+                        >
                           Delete
                         </button>
                       </div>
                     )}
-                  </div>
-                  <p style={styles.reviewComment}>{rev.comment}</p>
-                  <span style={styles.reviewDate}>
-                    {new Date(rev.createdAt).toLocaleDateString()}
+                  </header>
+                  <p className="review-comment">{rev.comment}</p>
+                  <span className="review-date">
+                    {new Date(rev.createdAt).toLocaleDateString('en-IN', {
+                      year: 'numeric',
+                      month: 'short',
+                      day: 'numeric',
+                    })}
                   </span>
-                </div>
+                </article>
               );
             })}
 
-            <Pagination
-              currentPage={reviewPage}
-              totalPages={reviewTotalPages}
-              onPageChange={(p) => setReviewPage(p)}
-            />
+            {/* Reviews Pagination */}
+            {reviewTotalPages > 1 && (
+              <nav className="pagination" aria-label="Reviews pagination" style={{ marginTop: '20px' }}>
+                <span>
+                  Showing page {reviewPage + 1} of {reviewTotalPages}
+                </span>
+                <div>
+                  <button
+                    type="button"
+                    disabled={reviewPage <= 0}
+                    onClick={() => setReviewPage((p) => Math.max(0, p - 1))}
+                  >
+                    Previous
+                  </button>
+                  {[...Array(reviewTotalPages)].map((_, i) => (
+                    <button
+                      type="button"
+                      key={i}
+                      className={reviewPage === i ? 'active' : ''}
+                      onClick={() => setReviewPage(i)}
+                    >
+                      {i + 1}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    disabled={reviewPage >= reviewTotalPages - 1}
+                    onClick={() => setReviewPage((p) => p + 1)}
+                  >
+                    Next
+                  </button>
+                </div>
+              </nav>
+            )}
           </div>
         )}
-      </div>
-    </div>
-  );
-};
+      </section>
 
-const styles = {
-  container: {
-    maxWidth: '1100px',
-    margin: '0 auto',
-    padding: '2rem 1.5rem',
-  },
-  detailGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
-    gap: '2.5rem',
-    backgroundColor: '#0f172a',
-    border: '1px solid #1e293b',
-    borderRadius: '12px',
-    padding: '2rem',
-  },
-  imageColumn: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#1e293b',
-    borderRadius: '8px',
-    minHeight: '300px',
-  },
-  mainImage: {
-    width: '100%',
-    maxHeight: '380px',
-    objectFit: 'contain',
-    borderRadius: '8px',
-  },
-  placeholderImage: {
-    fontSize: '6rem',
-  },
-  infoColumn: {
-    display: 'flex',
-    flexDirection: 'column',
-  },
-  categoryBadge: {
-    color: '#6366f1',
-    fontSize: '0.8rem',
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    marginBottom: '0.4rem',
-  },
-  productTitle: {
-    color: '#f8fafc',
-    fontSize: '1.8rem',
-    fontWeight: '800',
-    marginBottom: '0.5rem',
-  },
-  ratingSummary: {
-    marginBottom: '1rem',
-  },
-  ratingStars: {
-    color: '#fbbf24',
-    fontSize: '0.95rem',
-    fontWeight: '600',
-  },
-  priceRow: {
-    display: 'flex',
-    alignItems: 'baseline',
-    gap: '1.2rem',
-    marginBottom: '1.2rem',
-  },
-  price: {
-    color: '#f8fafc',
-    fontSize: '1.8rem',
-    fontWeight: '800',
-  },
-  stockStatus: {
-    fontSize: '0.9rem',
-    fontWeight: '600',
-  },
-  description: {
-    color: '#94a3b8',
-    fontSize: '0.95rem',
-    lineHeight: '1.6',
-    marginBottom: '2rem',
-  },
-  actionRow: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '1.2rem',
-    marginTop: 'auto',
-  },
-  quantitySelector: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '0.5rem',
-  },
-  qtyLabel: {
-    color: '#cbd5e1',
-    fontSize: '0.9rem',
-  },
-  select: {
-    padding: '0.5rem 0.8rem',
-    backgroundColor: '#1e293b',
-    border: '1px solid #334155',
-    color: '#f8fafc',
-    borderRadius: '6px',
-    fontSize: '0.95rem',
-  },
-  addToCartBtn: {
-    flex: '1',
-    padding: '0.8rem 1.5rem',
-    backgroundColor: '#6366f1',
-    color: '#ffffff',
-    border: 'none',
-    borderRadius: '8px',
-    fontSize: '1rem',
-    fontWeight: '700',
-    cursor: 'pointer',
-  },
-  reviewsSection: {
-    marginTop: '3rem',
-  },
-  sectionTitle: {
-    color: '#f8fafc',
-    fontSize: '1.4rem',
-    fontWeight: '700',
-    marginBottom: '1.5rem',
-  },
-  reviewForm: {
-    backgroundColor: '#0f172a',
-    border: '1px solid #1e293b',
-    borderRadius: '10px',
-    padding: '1.5rem',
-    marginBottom: '2rem',
-  },
-  formTitle: {
-    color: '#f8fafc',
-    fontSize: '1.1rem',
-    fontWeight: '600',
-    marginBottom: '1rem',
-  },
-  formGroup: {
-    marginBottom: '1rem',
-  },
-  label: {
-    display: 'block',
-    color: '#cbd5e1',
-    fontSize: '0.85rem',
-    marginBottom: '0.3rem',
-  },
-  textarea: {
-    width: '100%',
-    padding: '0.7rem',
-    backgroundColor: '#1e293b',
-    border: '1px solid #334155',
-    borderRadius: '6px',
-    color: '#f8fafc',
-    fontSize: '0.95rem',
-  },
-  submitReviewBtn: {
-    padding: '0.6rem 1.2rem',
-    backgroundColor: '#6366f1',
-    color: '#ffffff',
-    border: 'none',
-    borderRadius: '6px',
-    fontWeight: '600',
-    cursor: 'pointer',
-  },
-  cancelBtn: {
-    padding: '0.6rem 1.2rem',
-    backgroundColor: 'transparent',
-    color: '#94a3b8',
-    border: '1px solid #475569',
-    borderRadius: '6px',
-    cursor: 'pointer',
-  },
-  reviewList: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '1rem',
-  },
-  reviewCard: {
-    backgroundColor: '#0f172a',
-    border: '1px solid #1e293b',
-    borderRadius: '8px',
-    padding: '1.2rem',
-  },
-  reviewHeader: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: '0.5rem',
-  },
-  reviewComment: {
-    color: '#cbd5e1',
-    fontSize: '0.95rem',
-    lineHeight: '1.5',
-    marginBottom: '0.5rem',
-  },
-  reviewDate: {
-    color: '#64748b',
-    fontSize: '0.75rem',
-  },
-  editBtn: {
-    backgroundColor: 'transparent',
-    border: 'none',
-    color: '#818cf8',
-    cursor: 'pointer',
-    fontSize: '0.8rem',
-  },
-  deleteBtn: {
-    backgroundColor: 'transparent',
-    border: 'none',
-    color: '#f87171',
-    cursor: 'pointer',
-    fontSize: '0.8rem',
-  },
+      {/* Non-blocking Aster Toast */}
+      {toastNotice && (
+        <aside
+          className="toast"
+          role="status"
+          aria-live="polite"
+          style={
+            toastType === 'error'
+              ? { borderColor: 'var(--danger)', color: 'var(--danger)' }
+              : undefined
+          }
+        >
+          <span
+            style={
+              toastType === 'error'
+                ? { background: 'var(--danger-soft)', color: 'var(--danger)' }
+                : undefined
+            }
+          >
+            <Icon name={toastType === 'error' ? 'close' : 'check'} size={16} />
+          </span>
+          <span>{toastNotice}</span>
+          <button
+            type="button"
+            onClick={() => setToastNotice('')}
+            aria-label="Dismiss notification"
+          >
+            <Icon name="close" size={15} />
+          </button>
+        </aside>
+      )}
+    </main>
+  );
 };
 
 export default ProductDetailPage;
