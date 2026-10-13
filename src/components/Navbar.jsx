@@ -3,11 +3,23 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 
+/**
+ * Customer Storefront Navbar
+ *
+ * Renders search, cart, orders, addresses, and account controls for
+ * customer-facing pages ONLY.
+ *
+ * Admin management controls (sidebar, inventory, user management, etc.)
+ * are rendered exclusively inside AdminLayout — never here.
+ *
+ * For authenticated admins visiting the storefront: a small top utility
+ * banner is shown so they can switch to the Admin Panel without cluttering
+ * the customer shopping experience.
+ */
 export const Navbar = () => {
   const { user, profile, isAdmin, isAuthenticated, logout } = useAuth();
   const { cartCount, clearCartState } = useCart();
   const [searchQuery, setSearchQuery] = useState('');
-  const [adminMenuOpen, setAdminMenuOpen] = useState(false);
   const navigate = useNavigate();
 
   const handleSearchSubmit = (e) => {
@@ -28,105 +40,120 @@ export const Navbar = () => {
   const displayName = profile?.fullName || user?.email || 'Account';
 
   return (
-    <header className="navbar-header" style={styles.header}>
-      <div className="navbar-container" style={styles.container}>
-        {/* Brand / Logo */}
-        <Link to="/" style={styles.brand}>
-          <span style={styles.brandIcon}>⚡</span> E-Commerce
-        </Link>
+    <>
+      {/*
+        Admin session banner — only visible to admins browsing the storefront.
+        Intentionally subtle so it doesn't interfere with the shopping UX.
+      */}
+      {isAdmin && (
+        <div style={styles.adminBanner}>
+          <span style={styles.bannerText}>
+            👑 Admin session active — you are viewing the customer storefront.
+          </span>
+          <Link to="/admin" style={styles.bannerLink}>
+            Switch to Admin Panel →
+          </Link>
+        </div>
+      )}
 
-        {/* Search Bar */}
-        <form onSubmit={handleSearchSubmit} style={styles.searchForm}>
-          <input
-            type="text"
-            placeholder="Search products..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            style={styles.searchInput}
-          />
-          <button type="submit" style={styles.searchButton}>
-            🔍
-          </button>
-        </form>
-
-        {/* Navigation Links */}
-        <nav style={styles.nav}>
-          <Link to="/" style={styles.navLink}>
-            Catalog
+      <header style={styles.header}>
+        <div style={styles.container}>
+          {/* Brand / Logo */}
+          <Link to="/" style={styles.brand}>
+            <span style={styles.brandIcon}>⚡</span> E-Commerce
           </Link>
 
-          {/* Cart Icon & Badge */}
-          <Link to="/cart" style={{ ...styles.navLink, position: 'relative' }}>
-            🛒 Cart
-            {cartCount > 0 && <span style={styles.badge}>{cartCount}</span>}
-          </Link>
+          {/* Search Bar */}
+          <form onSubmit={handleSearchSubmit} style={styles.searchForm}>
+            <input
+              type="text"
+              placeholder="Search products..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              style={styles.searchInput}
+              aria-label="Search products"
+            />
+            <button type="submit" style={styles.searchButton} aria-label="Search">
+              🔍
+            </button>
+          </form>
 
-          {isAuthenticated ? (
-            <>
-              <Link to="/orders" style={styles.navLink}>
-                Orders
-              </Link>
+          {/* Navigation Links */}
+          <nav style={styles.nav} aria-label="Customer navigation">
+            <Link to="/" style={styles.navLink}>
+              Catalog
+            </Link>
 
-              <Link to="/addresses" style={styles.navLink}>
-                Addresses
-              </Link>
+            {/* Cart Icon & Badge */}
+            <Link to="/cart" style={{ ...styles.navLink, position: 'relative' }}>
+              🛒 Cart
+              {cartCount > 0 && <span style={styles.badge}>{cartCount}</span>}
+            </Link>
 
-              {/* Admin Menu Dropdown */}
-              {isAdmin && (
-                <div style={{ position: 'relative' }}>
-                  <button
-                    onClick={() => setAdminMenuOpen(!adminMenuOpen)}
-                    style={styles.adminBadgeButton}
-                  >
-                    👑 Admin Panel
+            {isAuthenticated ? (
+              <>
+                <Link to="/orders" style={styles.navLink}>
+                  Orders
+                </Link>
+
+                <Link to="/addresses" style={styles.navLink}>
+                  Addresses
+                </Link>
+
+                {/* User Account Info & Sign Out */}
+                <div style={styles.userSection}>
+                  <span style={styles.userName}>{displayName}</span>
+                  <button onClick={handleLogout} style={styles.logoutButton}>
+                    Sign Out
                   </button>
-                  {adminMenuOpen && (
-                    <div style={styles.dropdownMenu} onClick={() => setAdminMenuOpen(false)}>
-                      <Link to="/admin/dashboard" style={styles.dropdownItem}>
-                        Dashboard
-                      </Link>
-                      <Link to="/admin/products" style={styles.dropdownItem}>
-                        Products & Categories
-                      </Link>
-                      <Link to="/admin/inventory" style={styles.dropdownItem}>
-                        Inventory & Restock
-                      </Link>
-                      <Link to="/admin/orders" style={styles.dropdownItem}>
-                        Order Management
-                      </Link>
-                      <Link to="/admin/users" style={styles.dropdownItem}>
-                        User Accounts
-                      </Link>
-                    </div>
-                  )}
                 </div>
-              )}
-
-              {/* User Account Info & Sign Out */}
-              <div style={styles.userSection}>
-                <span style={styles.userName}>{displayName}</span>
-                <button onClick={handleLogout} style={styles.logoutButton}>
-                  Sign Out
-                </button>
+              </>
+            ) : (
+              <div style={styles.authButtons}>
+                <Link to="/login" style={styles.loginButton}>
+                  Sign In
+                </Link>
+                <Link to="/register" style={styles.registerButton}>
+                  Sign Up
+                </Link>
               </div>
-            </>
-          ) : (
-            <div style={styles.authButtons}>
-              <Link to="/login" style={styles.loginButton}>
-                Sign In
-              </Link>
-              <Link to="/register" style={styles.registerButton}>
-                Sign Up
-              </Link>
-            </div>
-          )}
-        </nav>
-      </div>
-    </header>
+            )}
+          </nav>
+        </div>
+      </header>
+    </>
   );
 };
 
 const styles = {
+  // ── Admin session banner ──────────────────────────────────────────────────
+  adminBanner: {
+    backgroundColor: 'rgba(79, 70, 229, 0.12)',
+    borderBottom: '1px solid rgba(99,102,241,0.25)',
+    padding: '0.45rem 1.5rem',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '1.2rem',
+    flexWrap: 'wrap',
+  },
+  bannerText: {
+    color: '#a5b4fc',
+    fontSize: '0.8rem',
+    fontWeight: '500',
+  },
+  bannerLink: {
+    color: '#818cf8',
+    textDecoration: 'none',
+    fontSize: '0.8rem',
+    fontWeight: '700',
+    padding: '2px 10px',
+    border: '1px solid rgba(99,102,241,0.4)',
+    borderRadius: '4px',
+    backgroundColor: 'rgba(99,102,241,0.1)',
+  },
+
+  // ── Main header ───────────────────────────────────────────────────────────
   header: {
     backgroundColor: '#0f172a',
     borderBottom: '1px solid #1e293b',
@@ -136,7 +163,7 @@ const styles = {
     padding: '0.8rem 1.5rem',
   },
   container: {
-    maxW: '1200px',
+    maxWidth: '1280px',
     margin: '0 auto',
     display: 'flex',
     alignItems: 'center',
@@ -202,37 +229,6 @@ const styles = {
     fontWeight: '700',
     borderRadius: '10px',
     padding: '2px 6px',
-  },
-  adminBadgeButton: {
-    backgroundColor: 'rgba(99, 102, 241, 0.2)',
-    color: '#818cf8',
-    border: '1px solid #6366f1',
-    borderRadius: '6px',
-    padding: '0.4rem 0.8rem',
-    cursor: 'pointer',
-    fontWeight: '600',
-    fontSize: '0.85rem',
-  },
-  dropdownMenu: {
-    position: 'absolute',
-    top: '120%',
-    right: 0,
-    backgroundColor: '#1e293b',
-    border: '1px solid #334155',
-    borderRadius: '8px',
-    boxShadow: '0 10px 25px rgba(0,0,0,0.5)',
-    display: 'flex',
-    flexDirection: 'column',
-    minWidth: '180px',
-    zIndex: 101,
-    overflow: 'hidden',
-  },
-  dropdownItem: {
-    padding: '0.65rem 1rem',
-    color: '#e2e8f0',
-    textDecoration: 'none',
-    fontSize: '0.9rem',
-    borderBottom: '1px solid #334155',
   },
   userSection: {
     display: 'flex',

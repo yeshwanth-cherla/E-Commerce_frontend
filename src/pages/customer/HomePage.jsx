@@ -5,6 +5,8 @@ import { LoadingSpinner } from '../../components/LoadingSpinner';
 import { Pagination } from '../../components/Pagination';
 import { AlertMessage } from '../../components/AlertMessage';
 import { useCart } from '../../context/CartContext';
+import { useProductRealtime } from '../../hooks/useProductRealtime';
+import { filterApprovedCategories } from '../../constants/categories';
 
 export const HomePage = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -29,7 +31,7 @@ export const HomePage = () => {
     const loadCategories = async () => {
       try {
         const response = await apiClient.get('/api/categories');
-        setCategories(response.data || []);
+        setCategories(filterApprovedCategories(response.data || []));
       } catch (err) {
         console.warn('Error loading categories:', err.message);
       }
@@ -67,6 +69,39 @@ export const HomePage = () => {
     loadProducts();
   }, [loadProducts]);
 
+  // Real-time synchronization for storefront catalog
+  useProductRealtime({
+    onUpdate: (newRecord) => {
+      // Optimistically update product in current view (zero-latency for stock & price)
+      setProducts((prev) =>
+        prev.map((p) => {
+          if (p.id === newRecord.id) {
+            return {
+              ...p,
+              name: newRecord.name ?? p.name,
+              price: newRecord.price != null ? Number(newRecord.price) : p.price,
+              stockQuantity:
+                newRecord.stock_quantity != null ? Number(newRecord.stock_quantity) : p.stockQuantity,
+              description: newRecord.description ?? p.description,
+              imageUrl: newRecord.image_url ?? p.imageUrl,
+              enabled: newRecord.enabled ?? p.enabled,
+            };
+          }
+          return p;
+        })
+      );
+      // Re-fetch backend to maintain correct pagination & filtered categories
+      loadProducts();
+    },
+    onInsert: () => {
+      loadProducts();
+    },
+    onDelete: (oldRecord) => {
+      setProducts((prev) => prev.filter((p) => p.id !== oldRecord.id));
+      loadProducts();
+    },
+  });
+
   const handleCategorySelect = (id) => {
     const newParams = new URLSearchParams(searchParams);
     if (id) {
@@ -99,15 +134,8 @@ export const HomePage = () => {
     }
   };
 
-  // Group categories into Main Categories (parent is null) and Subcategories
-  const mainCategories = categories.filter((cat) => !cat.parentId);
+  // Selected Category (strictly one of the 6 approved categories)
   const selectedCat = categories.find((cat) => cat.id.toString() === categoryId);
-  const currentParentId = selectedCat
-    ? selectedCat.parentId || selectedCat.id
-    : null;
-  const currentSubcategories = categories.filter(
-    (cat) => cat.parentId && cat.parentId === currentParentId
-  );
 
   return (
     <div style={styles.container}>
@@ -115,7 +143,7 @@ export const HomePage = () => {
       <div style={styles.heroBanner}>
         <h1 style={styles.heroTitle}>Discover Quality Products</h1>
         <p style={styles.heroSubtitle}>
-          Shop Electronics, Fashion, Home Essentials, Books & Personal Care with Cash on Delivery (COD).
+          Shop Grocery, Electronics, Fashion, Home &amp; Kitchen, Beauty &amp; Personal Care, Books &amp; Stationery with Cash on Delivery (COD).
         </p>
       </div>
 
@@ -124,7 +152,7 @@ export const HomePage = () => {
       )}
       <AlertMessage type="error" message={error} onClose={() => setError(null)} />
 
-      {/* Main Category Tabs */}
+      {/* Category Filter Tabs (6 Approved Categories Only) */}
       <div style={styles.filterBar}>
         <button
           onClick={() => handleCategorySelect('')}
@@ -135,10 +163,8 @@ export const HomePage = () => {
         >
           All Categories
         </button>
-        {mainCategories.map((cat) => {
-          const isSelected =
-            categoryId === cat.id.toString() ||
-            (selectedCat && selectedCat.parentId === cat.id);
+        {categories.map((cat) => {
+          const isSelected = categoryId === cat.id.toString();
           return (
             <button
               key={cat.id}
@@ -154,22 +180,34 @@ export const HomePage = () => {
         })}
       </div>
 
-      {/* Subcategory Pills (if active main category has subcategories) */}
-      {currentSubcategories.length > 0 && (
-        <div style={styles.subcategoryBar}>
-          <span style={styles.subLabel}>Subcategories:</span>
-          {currentSubcategories.map((sub) => (
-            <button
-              key={sub.id}
-              onClick={() => handleCategorySelect(sub.id.toString())}
-              style={{
-                ...styles.subTab,
-                ...(categoryId === sub.id.toString() ? styles.activeSubTab : {}),
-              }}
-            >
-              {sub.name}
-            </button>
-          ))}
+      {/* Active Filter Status Banner */}
+      {(selectedCat || searchQuery) && (
+        <div style={styles.activeFilterBanner}>
+          <div style={styles.filterStatus}>
+            <span style={{ color: '#94a3b8', fontSize: '0.9rem' }}>Showing:</span>{' '}
+            {selectedCat && (
+              <span style={styles.activeFilterTag}>
+                📁 {selectedCat.name}
+              </span>
+            )}
+            {searchQuery && (
+              <span style={styles.activeFilterTag}>
+                🔍 &ldquo;{searchQuery}&rdquo;
+              </span>
+            )}
+            <span style={styles.productCount}>
+              ({products.length} {products.length === 1 ? 'item' : 'items'} found)
+            </span>
+          </div>
+          <button
+            onClick={() => {
+              const newParams = new URLSearchParams();
+              setSearchParams(newParams);
+            }}
+            style={styles.clearFilterBtn}
+          >
+            ✕ Clear filters
+          </button>
         </div>
       )}
 
@@ -178,8 +216,26 @@ export const HomePage = () => {
         <LoadingSpinner message="Loading catalog..." />
       ) : products.length === 0 ? (
         <div style={styles.emptyState}>
-          <h3>No products found</h3>
-          <p>Try clearing filters or searching for a different keyword.</p>
+          <div style={{ fontSize: '3rem', marginBottom: '0.8rem' }}>📦</div>
+          <h3 style={{ color: '#f8fafc', fontSize: '1.25rem', marginBottom: '0.5rem' }}>
+            No products found
+          </h3>
+          <p style={{ color: '#94a3b8', marginBottom: '1.2rem', maxWidth: '420px', margin: '0 auto 1.2rem', lineHeight: '1.5' }}>
+            {selectedCat
+              ? `There are currently no products available in "${selectedCat.name}". Try selecting another category or view the full catalog.`
+              : 'Try clearing your filters or searching with different keywords.'}
+          </p>
+          {(categoryId || searchQuery) && (
+            <button
+              onClick={() => {
+                const newParams = new URLSearchParams();
+                setSearchParams(newParams);
+              }}
+              style={styles.viewAllBtn}
+            >
+              View All Products
+            </button>
+          )}
         </div>
       ) : (
         <div style={styles.grid}>
@@ -224,7 +280,7 @@ export const HomePage = () => {
                 </div>
 
                 <div style={styles.cardFooter}>
-                  <span style={styles.price}>${Number(product.price).toFixed(2)}</span>
+                  <span style={styles.price}>₹{Number(product.price).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                   <button
                     onClick={(e) => handleAddToCart(e, product.id)}
                     disabled={product.stockQuantity <= 0 || addingId === product.id}
@@ -284,40 +340,6 @@ const styles = {
     paddingBottom: '0.5rem',
     marginBottom: '0.8rem',
   },
-  subcategoryBar: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '0.5rem',
-    overflowX: 'auto',
-    paddingBottom: '0.8rem',
-    marginBottom: '1.5rem',
-    backgroundColor: 'rgba(30, 41, 59, 0.4)',
-    padding: '0.6rem 1rem',
-    borderRadius: '8px',
-  },
-  subLabel: {
-    color: '#818cf8',
-    fontSize: '0.8rem',
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    whiteSpace: 'nowrap',
-  },
-  subTab: {
-    padding: '0.35rem 0.85rem',
-    backgroundColor: '#1e293b',
-    color: '#cbd5e1',
-    border: '1px solid #334155',
-    borderRadius: '16px',
-    fontSize: '0.8rem',
-    fontWeight: '500',
-    cursor: 'pointer',
-    whiteSpace: 'nowrap',
-  },
-  activeSubTab: {
-    backgroundColor: '#4f46e5',
-    color: '#ffffff',
-    borderColor: '#6366f1',
-  },
   categoryTab: {
     padding: '0.5rem 1.1rem',
     backgroundColor: '#1e293b',
@@ -333,7 +355,7 @@ const styles = {
   activeCategoryTab: {
     backgroundColor: '#6366f1',
     color: '#ffffff',
-    borderColor: '#6366f1',
+    border: '1px solid #6366f1',
   },
   grid: {
     display: 'grid',
@@ -442,6 +464,60 @@ const styles = {
     textAlign: 'center',
     padding: '4rem 1rem',
     color: '#94a3b8',
+  },
+  activeFilterBanner: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: '0.8rem',
+    backgroundColor: '#0f172a',
+    border: '1px solid #1e293b',
+    borderRadius: '10px',
+    padding: '0.75rem 1.25rem',
+    marginBottom: '1.5rem',
+  },
+  filterStatus: {
+    display: 'flex',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: '0.5rem',
+    fontSize: '0.9rem',
+    color: '#f8fafc',
+  },
+  activeFilterTag: {
+    backgroundColor: 'rgba(99, 102, 241, 0.15)',
+    color: '#818cf8',
+    border: '1px solid rgba(99, 102, 241, 0.3)',
+    borderRadius: '6px',
+    padding: '0.2rem 0.6rem',
+    fontWeight: '600',
+    fontSize: '0.85rem',
+  },
+  productCount: {
+    color: '#94a3b8',
+    fontSize: '0.85rem',
+  },
+  clearFilterBtn: {
+    backgroundColor: 'transparent',
+    color: '#f87171',
+    border: '1px solid rgba(239, 68, 68, 0.3)',
+    borderRadius: '6px',
+    padding: '0.35rem 0.75rem',
+    fontSize: '0.8rem',
+    fontWeight: '600',
+    cursor: 'pointer',
+    transition: 'all 0.2s',
+  },
+  viewAllBtn: {
+    backgroundColor: '#6366f1',
+    color: '#ffffff',
+    border: 'none',
+    borderRadius: '6px',
+    padding: '0.6rem 1.25rem',
+    fontSize: '0.9rem',
+    fontWeight: '600',
+    cursor: 'pointer',
   },
 };
 

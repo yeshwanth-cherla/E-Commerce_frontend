@@ -1,14 +1,15 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import { apiClient } from '../../services/apiClient';
 import { useAuth } from '../../context/AuthContext';
 import { useCart } from '../../context/CartContext';
 import { LoadingSpinner } from '../../components/LoadingSpinner';
 import { Pagination } from '../../components/Pagination';
 import { AlertMessage } from '../../components/AlertMessage';
+import { useProductRealtime } from '../../hooks/useProductRealtime';
 
 export const ProductDetailPage = () => {
-  const { productId } = useParams();
+  const { id } = useParams(); // route is /products/:id
   const navigate = useNavigate();
   const { isAuthenticated, user } = useAuth();
   const { addToCart } = useCart();
@@ -36,7 +37,7 @@ export const ProductDetailPage = () => {
     setLoading(true);
     setError(null);
     try {
-      const response = await apiClient.get(`/api/products/${productId}`);
+      const response = await apiClient.get(`/api/products/${id}`);
       setProduct(response.data);
     } catch (err) {
       console.error('Error fetching product detail:', err);
@@ -44,12 +45,12 @@ export const ProductDetailPage = () => {
     } finally {
       setLoading(false);
     }
-  }, [productId]);
+  }, [id]);
 
   const loadReviews = useCallback(async () => {
     setReviewLoading(true);
     try {
-      const response = await apiClient.get(`/api/products/${productId}/reviews`, {
+      const response = await apiClient.get(`/api/products/${id}/reviews`, {
         params: { page: reviewPage, size: 5 },
       });
       setReviews(response.data.content || []);
@@ -59,12 +60,37 @@ export const ProductDetailPage = () => {
     } finally {
       setReviewLoading(false);
     }
-  }, [productId, reviewPage]);
+  }, [id, reviewPage]);
 
   useEffect(() => {
     loadProduct();
     loadReviews();
   }, [loadProduct, loadReviews]);
+
+  // Real-time synchronization for this specific product
+  useProductRealtime({
+    productId: id,
+    onUpdate: (newRecord) => {
+      // Immediate optimistic update for zero-latency UI change
+      setProduct((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          name: newRecord.name ?? prev.name,
+          price: newRecord.price != null ? Number(newRecord.price) : prev.price,
+          stockQuantity: newRecord.stock_quantity != null ? Number(newRecord.stock_quantity) : prev.stockQuantity,
+          description: newRecord.description ?? prev.description,
+          imageUrl: newRecord.image_url ?? prev.imageUrl,
+          enabled: newRecord.enabled ?? prev.enabled,
+        };
+      });
+      // Backend refetch to guarantee relations (category, rating) stay synced
+      loadProduct();
+    },
+    onDelete: () => {
+      setError('This product is no longer available.');
+    },
+  });
 
   const handleAddToCart = async () => {
     if (!isAuthenticated) {
@@ -73,7 +99,7 @@ export const ProductDetailPage = () => {
     }
     setAdding(true);
     try {
-      await addToCart(productId, quantity);
+      await addToCart(id, quantity);
       setToastMessage(`Added ${quantity} item(s) to your cart!`);
       setTimeout(() => setToastMessage(''), 3000);
     } catch (err) {
@@ -98,7 +124,7 @@ export const ProductDetailPage = () => {
         });
         setToastMessage('Review updated successfully!');
       } else {
-        await apiClient.post(`/api/products/${productId}/reviews`, {
+        await apiClient.post(`/api/products/${id}/reviews`, {
           rating: Number(rating),
           comment,
         });
@@ -156,7 +182,15 @@ export const ProductDetailPage = () => {
         </div>
 
         <div style={styles.infoColumn}>
-          <span style={styles.categoryBadge}>{product.category?.name}</span>
+          {product.category && (
+            <Link
+              to={`/?categoryId=${product.category.id}`}
+              style={{ ...styles.categoryBadge, textDecoration: 'none' }}
+              title={`View products in ${product.category.name}`}
+            >
+              {product.category.name}
+            </Link>
+          )}
           <h1 style={styles.productTitle}>{product.name}</h1>
 
           <div style={styles.ratingSummary}>
@@ -166,7 +200,7 @@ export const ProductDetailPage = () => {
           </div>
 
           <div style={styles.priceRow}>
-            <span style={styles.price}>${Number(product.price).toFixed(2)}</span>
+            <span style={styles.price}>₹{Number(product.price).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
             <span
               style={{
                 ...styles.stockStatus,

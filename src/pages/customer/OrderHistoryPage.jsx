@@ -101,7 +101,7 @@ export const OrderHistoryPage = () => {
                   >
                     {order.status}
                   </span>
-                  <div style={styles.orderTotal}>${Number(order.totalAmount).toFixed(2)}</div>
+                  <div style={styles.orderTotal}>₹{Number(order.totalAmount).toFixed(2)}</div>
                 </div>
               </div>
 
@@ -110,7 +110,7 @@ export const OrderHistoryPage = () => {
                 {order.items?.slice(0, 3).map((item) => (
                   <div key={item.id} style={styles.itemRow}>
                     <span>{item.productName} (x{item.quantity})</span>
-                    <span>${(Number(item.priceAtPurchase) * item.quantity).toFixed(2)}</span>
+                    <span>₹{(Number(item.priceAtPurchase) * item.quantity).toFixed(2)}</span>
                   </div>
                 ))}
                 {order.items?.length > 3 && (

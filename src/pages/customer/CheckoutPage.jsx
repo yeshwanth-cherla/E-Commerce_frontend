@@ -136,7 +136,7 @@ export const CheckoutPage = () => {
                     key={addr.id}
                     style={{
                       ...styles.addressLabel,
-                      borderColor: selectedAddressId === addr.id ? '#6366f1' : '#334155',
+                      border: selectedAddressId === addr.id ? '1px solid #6366f1' : '1px solid #334155',
                       backgroundColor: selectedAddressId === addr.id ? 'rgba(99, 102, 241, 0.1)' : '#1e293b',
                     }}
                   >
@@ -280,7 +280,7 @@ export const CheckoutPage = () => {
                   <span>
                     {item.productName} <small style={{ color: '#94a3b8' }}>x {item.quantity}</small>
                   </span>
-                  <span>${(getItemPrice(item) * item.quantity).toFixed(2)}</span>
+                  <span>₹{(getItemPrice(item) * item.quantity).toFixed(2)}</span>
                 </div>
               ))}
             </div>
@@ -289,7 +289,7 @@ export const CheckoutPage = () => {
 
             <div style={{ ...styles.itemRow, fontSize: '1.2rem', fontWeight: '800', color: '#f8fafc' }}>
               <span>Total Amount</span>
-              <span>${totalPrice.toFixed(2)}</span>
+              <span>₹{totalPrice.toFixed(2)}</span>
             </div>
 
             <div style={styles.paymentInfoNote}>

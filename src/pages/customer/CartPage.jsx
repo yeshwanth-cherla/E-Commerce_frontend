@@ -52,7 +52,7 @@ export const CartPage = () => {
                   <Link to={`/products/${item.productId}`} style={styles.itemTitle}>
                     {item.productName}
                   </Link>
-                  <span style={styles.unitPrice}>${getItemPrice(item).toFixed(2)} each</span>
+                  <span style={styles.unitPrice}>₹{getItemPrice(item).toFixed(2)} each</span>
                 </div>
 
                 {/* Quantity Controller */}
@@ -74,7 +74,7 @@ export const CartPage = () => {
                 </div>
 
                 <div style={styles.lineTotal}>
-                  ${(getItemPrice(item) * item.quantity).toFixed(2)}
+                  ₹{(getItemPrice(item) * item.quantity).toFixed(2)}
                 </div>
 
                 <button onClick={() => removeFromCart(item.id)} style={styles.removeBtn} title="Remove item">
@@ -90,7 +90,7 @@ export const CartPage = () => {
 
             <div style={styles.summaryRow}>
               <span>Items Subtotal</span>
-              <span>${totalPrice.toFixed(2)}</span>
+              <span>₹{totalPrice.toFixed(2)}</span>
             </div>
             <div style={styles.summaryRow}>
               <span>Estimated Shipping</span>
@@ -101,7 +101,7 @@ export const CartPage = () => {
 
             <div style={{ ...styles.summaryRow, fontSize: '1.2rem', fontWeight: '800', color: '#f8fafc' }}>
               <span>Total</span>
-              <span>${totalPrice.toFixed(2)}</span>
+              <span>₹{totalPrice.toFixed(2)}</span>
             </div>
 
             <button
